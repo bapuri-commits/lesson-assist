@@ -1,0 +1,28 @@
+# lesson-assist 설정 파일
+# 이 파일을 config.yaml로 복사해서 사용하세요.
+
+vault_path: "G:\\CS_Study\\The Record"
+output_dir: "data"
+
+transcribe:
+  model: "large-v3"
+  language: "ko"
+  device: "cuda"
+  compute_type: "float16"
+  beam_size: 5
+  vad_filter: true
+
+review:
+  logprob_threshold: -0.7
+  no_speech_threshold: 0.5
+  min_segment_chars: 2
+  max_repeat_count: 3
+
+segment:
+  part_minutes: 25
+  min_part_minutes: 5
+
+summarize:
+  model: "gpt-4o"
+  temperature: 0.3
+  max_retries: 3

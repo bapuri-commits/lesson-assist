@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+config.yaml
+data/transcripts/
+data/reviews/
+data/parts/
+data/summaries/
+data/logs/
+*.m4a
+*.mp3
+*.wav
+*.ogg
