@@ -62,6 +62,7 @@ def _add_process_args(parser: argparse.ArgumentParser):
     parser.add_argument("--no-rag", action="store_true", help="RAG 컨텍스트 비활성화")
     parser.add_argument("--no-anchors", action="store_true", help="Visual Anchors 비활성화")
     parser.add_argument("--no-subtitle", action="store_true", help="자막 생성 비활성화")
+    parser.add_argument("--no-clean", action="store_true", help="오디오 전처리 비활성화")
     _add_common_args(parser)
 
 
@@ -105,6 +106,7 @@ def cmd_process(args, cfg):
     logger.info(f"  볼트: {cfg.vault_path}")
     logger.info(f"  RAG: {'OFF' if args.no_rag else 'ON'}")
     logger.info(f"  Visual Anchors: {'OFF' if args.no_anchors else 'ON'}")
+    logger.info(f"  오디오 전처리: {'OFF' if args.no_clean else 'ON'}")
 
     from .pipeline import run_pipeline
 
@@ -121,6 +123,7 @@ def cmd_process(args, cfg):
         no_rag=args.no_rag,
         no_anchors=args.no_anchors,
         no_subtitle=args.no_subtitle,
+        no_clean=args.no_clean,
     )
     logger.info(f"노트 생성 완료: {note_path}")
 
@@ -177,6 +180,7 @@ def main():
     parser.add_argument("--no-rag", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--no-anchors", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--no-subtitle", action="store_true", default=False, help=argparse.SUPPRESS)
+    parser.add_argument("--no-clean", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--verbose", "-v", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--output-dir", default=None, help=argparse.SUPPRESS)
 

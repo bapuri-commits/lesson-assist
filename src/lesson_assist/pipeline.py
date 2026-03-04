@@ -16,7 +16,7 @@ from .config import AppConfig
 from .daily_linker import link_to_daily
 from .eclass import EclassData
 from .obsidian_writer import write_note
-from .preprocess import is_video, prepare_input
+from .preprocess import clean_audio, is_video, prepare_input
 from .review import (
     ReviewCandidate,
     apply_corrections,
@@ -44,6 +44,7 @@ def run_pipeline(
     no_rag: bool = False,
     no_anchors: bool = False,
     no_subtitle: bool = False,
+    no_clean: bool = False,
 ) -> Path:
     """전체 파이프라인을 실행하고 생성된 노트 경로를 반환한다."""
     if not audio_path.exists():
@@ -74,6 +75,15 @@ def run_pipeline(
         logger.info("STEP 0: 영상 → 오디오 추출")
         logger.info("=" * 50)
         audio_path, _ = prepare_input(audio_path, out_base / "extracted_audio")
+
+    # 0.5. 오디오 전처리 (잡음 제거 + 무음 제거 + 정규화)
+    if cfg.clean_audio.enabled and not no_clean:
+        logger.info("=" * 50)
+        logger.info("STEP 0.5: 오디오 전처리")
+        logger.info("=" * 50)
+        audio_path, _ = clean_audio(
+            audio_path, cfg.clean_audio, out_base / "cleaned_audio",
+        )
 
     # 1. 전사
     logger.info("=" * 50)

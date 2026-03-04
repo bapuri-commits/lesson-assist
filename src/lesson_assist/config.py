@@ -63,6 +63,20 @@ class RAGConfig:
 
 
 @dataclass
+class CleanAudioConfig:
+    """오디오 전처리 설정."""
+    enabled: bool = True
+    highpass_freq: int = 80
+    lowpass_freq: int = 7500
+    denoise: bool = True
+    denoise_strength: int = 25
+    remove_silence: bool = True
+    silence_threshold_db: float = -40.0
+    min_silence_duration: float = 2.0
+    normalize: bool = True
+
+
+@dataclass
 class EclassConfig:
     """eclass_crawler 연동 설정."""
     enabled: bool = False
@@ -89,6 +103,7 @@ class AppConfig:
     summarize: SummarizeConfig = field(default_factory=SummarizeConfig)
     anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
+    clean_audio: CleanAudioConfig = field(default_factory=CleanAudioConfig)
     eclass: EclassConfig = field(default_factory=EclassConfig)
     exam_sheet: ExamSheetConfig = field(default_factory=ExamSheetConfig)
 
@@ -129,6 +144,8 @@ def load_config(config_path: str | None = None) -> AppConfig:
         cfg.anchors = _build_dataclass(AnchorsConfig, ac)
     if rg := raw.get("rag"):
         cfg.rag = _build_dataclass(RAGConfig, rg)
+    if ca := raw.get("clean_audio"):
+        cfg.clean_audio = _build_dataclass(CleanAudioConfig, ca)
     if ec := raw.get("eclass"):
         cfg.eclass = _build_dataclass(EclassConfig, ec)
     if es := raw.get("exam_sheet"):

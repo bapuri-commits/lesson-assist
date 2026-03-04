@@ -155,8 +155,10 @@ class EclassData:
             for post in posts[:limit]:
                 notices.append({
                     "board": board_name,
-                    "title": post.get("col_1", post.get("title", "")),
-                    "date": post.get("col_3", post.get("date", "")),
+                    "title": post.get("제목", post.get("title", post.get("col_1", ""))),
+                    "date": post.get("작성일", post.get("date", post.get("col_3", ""))),
+                    "author": post.get("작성자", post.get("author", "")),
+                    "link": post.get("_link", ""),
                 })
 
         return notices[:limit]
