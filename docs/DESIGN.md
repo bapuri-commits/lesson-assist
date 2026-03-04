@@ -8,6 +8,7 @@
 4. [Phase 3: 자동화 + 이미지 연결](#phase-3-자동화--이미지-연결)
 5. [The Record 연동](#the-record-연동)
 6. [개발 로드맵](#개발-로드맵)
+7. [구현 현황](#구현-현황)
 
 ---
 
@@ -392,30 +393,127 @@ lesson-assist/
 - 자주 나오는 함정 3개
 - 5분 초압축 10줄
 
+### eclass_crawler 연동
+
+동일 워크스페이스의 `eclass_crawler` 프로젝트와 **느슨한 결합(Loose Coupling)** 으로 연동한다.
+lesson-assist는 eclass_crawler의 출력 디렉토리(`output/`)만 읽으며, 직접 크롤링하지 않는다.
+
+**연동 포인트**:
+
+| 데이터 | 활용 | 구현 |
+|--------|------|------|
+| 실라버스 주차별 계획 | 날짜 → 주차 주제 자동 파악 → 요약 프롬프트에 주입 | `eclass.py` |
+| 다운로드 강의자료 (PDF/PPT) | RAG 컨텍스트로 저장 → 요약 시 참조 | `rag/store.py` |
+| 캘린더 이벤트 | 과제/시험 마감일 교차검증 | `eclass.py` |
+| 게시판 공지 | 해당 과목 최신 공지 → 노트 첨부 | `eclass.py` |
+
+**설정** (`config.yaml`):
+```yaml
+eclass:
+  enabled: true
+  data_dir: "G:\\CS_Study\\eclass_crawler\\output"
+  course_mapping:
+    자료구조: "자료구조(01)"
+    알고리즘: "알고리즘(01)"
+```
+
+`course_mapping`은 lesson-assist에서 사용하는 과목명과 eclass 과목명이 다를 때 매핑한다.
+
+### 온라인 수업 지원
+
+오프라인/온라인 수업 모두 동일한 파이프라인으로 처리한다.
+
+**입력 흐름**:
+- 오프라인: 녹음 파일 (m4a/mp3/wav) → 기존 파이프라인
+- 온라인: 화면 녹화 영상 (mp4/mkv/webm) → ffmpeg 오디오 추출 → 기존 파이프라인
+
+**온라인 수업의 추가 이점**:
+- 영상에서 Visual Anchor 시점의 **스크린샷 자동 추출** 가능 (판서 촬영 불필요)
+- 오디오 품질이 더 좋음 (디지털 음성)
+
+**CLI**:
+```bash
+# 오프라인 수업 (녹음)
+python -m lesson_assist process --audio "lecture.m4a" --course "자료구조"
+
+# 온라인 수업 (영상)
+python -m lesson_assist process --input "lecture.mp4" --course "자료구조"
+```
+
+### 사용 전략 — 맥락 보전의 3계층
+
+수업 녹음만으로는 시각 자료(판서, 슬라이드 보충)의 맥락이 빠진다.
+이 문제를 **자동(RAG) + 반자동(Visual Anchors) + 수동(학생 필기)** 3계층으로 해결한다.
+
+| 계층 | 담당 | 보전하는 맥락 |
+|------|------|---------------|
+| **1. RAG 자동** | eclass PPT 텍스트 + 이전 강의 요약 | 슬라이드 원본 내용, 이전 강의 선수 개념 |
+| **2. Visual Anchors 반자동** | 앵커 탐지 → 학생에게 가이드 | 교수가 PPT 위에 추가한 판서/보충 설명 |
+| **3. 학생 수동** | 선택적 사진 촬영 / 간단 메모 | 앵커가 짚어준 구간 중 중요한 것만 보완 |
+
+**핵심 원리**: eclass PPT가 수업의 뼈대이므로 RAG에 넣으면 슬라이드 내용은 자동 참조된다. Visual Anchors는 "PPT에 없는 교수님 추가분"을 짚어주는 역할이다. 학생은 모든 판서를 찍을 필요 없이, 앵커가 표시한 구간 중 핵심만 선택적으로 보완하면 된다.
+
+### 전체 사용 플로우
+
+```
+┌─ 수업 전 ──────────────────────────────────────────────┐
+│  eclass_crawler 실행 → 강의자료(PPT/PDF) 다운로드      │
+│  lesson-assist가 자료 텍스트를 RAG에 자동 저장          │
+│  (이전 강의 요약 + PPT 원문이 모두 검색 대상이 됨)     │
+└──────────────────────────────────────────────────────────┘
+                         ▼
+┌─ 수업 중 ──────────────────────────────────────────────┐
+│  오프라인: 녹음 + 중요 판서만 선택적 촬영              │
+│  온라인:   화면 녹화 (스크린샷 자동 추출됨)            │
+└──────────────────────────────────────────────────────────┘
+                         ▼
+┌─ 수업 후 ──────────────────────────────────────────────┐
+│  lesson-assist 실행                                    │
+│  → 전사 → 분할 → 각 파트마다 RAG 검색·주입 → 요약     │
+│  → Visual Anchors (판서/보충 구간 표시)                │
+│  → 노트 생성 → 요약을 RAG에 저장 → 데일리 연동        │
+│                                                        │
+│  학생: 노트의 앵커 체크리스트 검토                     │
+│  → 사진 있으면 첨부 / 없으면 기억·필기로 보완          │
+│  → PPT에 있는 내용은 이미 RAG가 처리했으므로 스킵      │
+└──────────────────────────────────────────────────────────┘
+                         ▼
+┌─ 시험 대비 ────────────────────────────────────────────┐
+│  lesson-assist exam --course "자료구조"                 │
+│  → 누적 노트 기반 A4 1장 압축 문서 생성                │
+└──────────────────────────────────────────────────────────┘
+```
+
 ### Phase 2 추가 기술 스택
 
 | 구성 | 선택 | 이유 |
 |------|------|------|
 | 벡터 DB | ChromaDB | 로컬 파일 기반, Python 네이티브, 설치 간단 |
 | 임베딩 | text-embedding-3-small | 성능/비용 균형, 한국어 지원 |
-| 자막 | pysrt / webvtt-py | SRT/VTT 생성 |
+| 자막 | 자체 구현 | SRT/VTT 생성 — 외부 의존성 없이 포맷 직접 구현 |
+| 영상 처리 | ffmpeg | 오디오 추출 + 스크린샷 추출 |
+| 테스트 | pytest | 포트폴리오 수준 테스트 커버리지 |
 
 ### Phase 2 추가 모듈
 
 ```
 src/lesson_assist/
-├── anchors.py           # Visual Anchors 후보 탐지
-├── subtitle.py          # SRT/VTT 생성
+├── anchors.py           # Visual Anchors 후보 탐지 + 이미지 첨부
+├── subtitle.py          # SRT/VTT 자막 생성
+├── preprocess.py        # 영상→오디오 추출, 스크린샷 추출
+├── eclass.py            # eclass_crawler 데이터 연동 레이어
+├── exam_sheet.py        # 시험 대비 A4 생성
 ├── rag/
 │   ├── __init__.py
 │   ├── store.py         # ChromaDB 저장/검색
 │   └── context.py       # 이전 강의 컨텍스트 조합
-├── exam_sheet.py        # 시험 대비 A4 생성
-└── tests/               # 테스트 추가
-    ├── test_transcribe.py
-    ├── test_summarize.py
-    ├── test_anchors.py
-    └── test_rag.py
+tests/
+├── conftest.py          # 공통 픽스처
+├── test_anchors.py
+├── test_config.py
+├── test_eclass.py
+├── test_preprocess.py
+└── test_subtitle.py
 ```
 
 ---
@@ -543,3 +641,40 @@ The Record/
 | 8주 | watch 모드 (watchdog) + 파일명 파싱 |
 | 9주 | 이미지 반자동 연결 + resume 기능 |
 | 10주 | 통합 테스트 + README 최종 정리 |
+
+---
+
+## 구현 현황
+
+### Phase 1 — 완료 (commit c3da20a)
+
+- [x] transcribe (faster-whisper GPU)
+- [x] review (저신뢰 후보 추출 + 대화형/파일 교정)
+- [x] segment (시간 기반 분할)
+- [x] summarize (파트별 + 통합)
+- [x] actions (과제/시험/일정/공지 추출)
+- [x] obsidian_writer (노트 생성)
+- [x] daily_linker (데일리 노트 연동)
+- [x] CLI (__main__.py)
+
+### Phase 2 — 구현 완료
+
+- [x] Visual Anchors (anchors.py) — 키워드 기반 탐지 + 앵커 병합 + 이미지 첨부 API
+- [x] SRT/VTT 자막 (subtitle.py) — 번호 매기기, 빈 세그먼트 스킵
+- [x] 강의 컨텍스트 RAG (rag/) — ChromaDB 저장/검색 + 컨텍스트 빌더
+- [x] eclass 연동 (eclass.py) — 실라버스 주차 매칭, 캘린더, 공지, 강의자료
+- [x] 시험 대비 A4 (exam_sheet.py) — 범위 지정/전체 생성
+- [x] 영상 입력 지원 (preprocess.py) — ffmpeg 오디오 추출 + 스크린샷
+- [x] RAG 컨텍스트 주입 (summarize.py 확장)
+- [x] 파이프라인 통합 (pipeline.py) — 새 모듈 전부 연동
+- [x] CLI 서브커맨드 (__main__.py) — process/exam + 하위호환
+- [x] 테스트 25개 (tests/) — anchors, subtitle, config, eclass, preprocess
+- [x] config 확장 — anchors, rag, eclass, exam_sheet 설정
+- [x] RAG 파트별 주입 + 핵심 용어 기반 쿼리 (summarize.py)
+- [x] eclass PPT/PDF → RAG 저장 (material_loader.py)
+- [x] 오디오 합치기 (preprocess.py concat_audio)
+
+### 알려진 이슈 / 향후 튜닝
+
+- **Visual Anchors 키워드 튜닝 필요**: 첫 실전 테스트(수리논술)에서 98개 앵커 생성 — 대부분 "보면" 키워드의 false positive. "보면"은 한국어 구어체에서 말습관으로 쓰여 시각 자료와 무관한 경우가 많다. 실제 강의 데이터를 더 수집한 뒤 키워드 목록과 병합 전략을 조정해야 한다. (앵커 기능 자체는 정상 작동, 정밀도 튜닝 문제)
+- **ChromaDB Python 3.14 비호환**: pydantic v1이 Python 3.14에서 동작하지 않아 ChromaDB 초기화 실패. JSON 기반 fallback 벡터 저장소로 대체 구현.

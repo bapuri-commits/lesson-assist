@@ -39,6 +39,46 @@ class SummarizeConfig:
 
 
 @dataclass
+class AnchorsConfig:
+    """Visual Anchors 탐지 설정."""
+    keywords: list[str] = field(default_factory=lambda: [
+        "칠판", "판서", "보면", "그림", "수식", "도표",
+        "이렇게", "슬라이드", "다이어그램",
+        "그래프", "화면", "PPT", "피피티", "프레젠테이션",
+        "여기 보면", "이거 보면", "저기 보면", "화면에",
+    ])
+    context_seconds: float = 30.0
+    merge_gap_seconds: float = 15.0
+
+
+@dataclass
+class RAGConfig:
+    """강의 컨텍스트 RAG 설정."""
+    enabled: bool = True
+    db_path: str = "data/chroma_db"
+    embedding_model: str = "text-embedding-3-small"
+    top_k: int = 5
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+
+@dataclass
+class EclassConfig:
+    """eclass_crawler 연동 설정."""
+    enabled: bool = False
+    data_dir: str = ""
+    course_mapping: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ExamSheetConfig:
+    """시험 대비 A4 생성 설정."""
+    model: str = "gpt-4o"
+    temperature: float = 0.2
+    max_retries: int = 3
+
+
+@dataclass
 class AppConfig:
     vault_path: str = ""
     output_dir: str = "data"
@@ -47,6 +87,15 @@ class AppConfig:
     review: ReviewConfig = field(default_factory=ReviewConfig)
     segment: SegmentConfig = field(default_factory=SegmentConfig)
     summarize: SummarizeConfig = field(default_factory=SummarizeConfig)
+    anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
+    rag: RAGConfig = field(default_factory=RAGConfig)
+    eclass: EclassConfig = field(default_factory=EclassConfig)
+    exam_sheet: ExamSheetConfig = field(default_factory=ExamSheetConfig)
+
+
+def _build_dataclass(cls, raw: dict):
+    """dataclass에 정의된 필드만 골라서 인스턴스를 생성한다."""
+    return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -69,12 +118,20 @@ def load_config(config_path: str | None = None) -> AppConfig:
     )
 
     if tc := raw.get("transcribe"):
-        cfg.transcribe = TranscribeConfig(**{k: v for k, v in tc.items() if k in TranscribeConfig.__dataclass_fields__})
+        cfg.transcribe = _build_dataclass(TranscribeConfig, tc)
     if rc := raw.get("review"):
-        cfg.review = ReviewConfig(**{k: v for k, v in rc.items() if k in ReviewConfig.__dataclass_fields__})
+        cfg.review = _build_dataclass(ReviewConfig, rc)
     if sc := raw.get("segment"):
-        cfg.segment = SegmentConfig(**{k: v for k, v in sc.items() if k in SegmentConfig.__dataclass_fields__})
+        cfg.segment = _build_dataclass(SegmentConfig, sc)
     if sm := raw.get("summarize"):
-        cfg.summarize = SummarizeConfig(**{k: v for k, v in sm.items() if k in SummarizeConfig.__dataclass_fields__})
+        cfg.summarize = _build_dataclass(SummarizeConfig, sm)
+    if ac := raw.get("anchors"):
+        cfg.anchors = _build_dataclass(AnchorsConfig, ac)
+    if rg := raw.get("rag"):
+        cfg.rag = _build_dataclass(RAGConfig, rg)
+    if ec := raw.get("eclass"):
+        cfg.eclass = _build_dataclass(EclassConfig, ec)
+    if es := raw.get("exam_sheet"):
+        cfg.exam_sheet = _build_dataclass(ExamSheetConfig, es)
 
     return cfg

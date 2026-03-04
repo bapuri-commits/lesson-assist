@@ -1,5 +1,6 @@
 # lesson-assist 설정 파일
 # 이 파일을 config.yaml로 복사해서 사용하세요.
+# openai_api_key: "sk-..."  또는 OPENAI_API_KEY 환경변수 사용
 
 vault_path: "G:\\CS_Study\\The Record"
 output_dir: "data"
@@ -26,3 +27,29 @@ summarize:
   model: "gpt-4o"
   temperature: 0.3
   max_retries: 3
+
+# Phase 2 설정
+anchors:
+  context_seconds: 30.0
+  merge_gap_seconds: 15.0
+
+rag:
+  enabled: true
+  db_path: "data/chroma_db"
+  embedding_model: "text-embedding-3-small"
+  top_k: 5
+  chunk_size: 500
+  chunk_overlap: 50
+
+exam_sheet:
+  model: "gpt-4o"
+  temperature: 0.2
+  max_retries: 3
+
+# eclass_crawler 연동 (선택)
+# eclass:
+#   enabled: true
+#   data_dir: "G:\\CS_Study\\eclass_crawler\\output"
+#   course_mapping:
+#     자료구조: "자료구조(01)"
+#     알고리즘: "알고리즘(01)"

@@ -5,6 +5,7 @@ from pathlib import Path
 from loguru import logger
 
 from .actions import ActionsResult
+from .anchors import AnchorsResult
 from .review import ReviewCandidate
 from .summarize import SummaryResult
 from .transcribe import TranscriptResult
@@ -21,6 +22,7 @@ def write_note(
     audio_filename: str,
     summarize_model: str = "gpt-4o",
     include_raw: bool = True,
+    anchors: AnchorsResult | None = None,
 ) -> Path:
     """Obsidian 강의 노트 마크다운을 생성한다."""
     note_dir = Path(vault_path) / "3_Areas" / "Lectures" / course
@@ -71,6 +73,11 @@ def write_note(
             lines.append(f"- [ ] **[{item.type}]** {item.content}{deadline_str}")
         lines.append("")
 
+    # Visual Anchors
+    if anchors and anchors.candidates:
+        lines.append(anchors.to_markdown_section())
+        lines.append("")
+
     # 교정 후보 (미처리분)
     pending = [c for c in review_candidates if c.action == "pending"]
     if pending:
@@ -78,7 +85,7 @@ def write_note(
         lines.append("")
         lines.append("> 전사 품질이 낮은 구간입니다. 필요시 원문을 확인하고 교정하세요.")
         lines.append("")
-        for c in pending[:20]:  # 최대 20개
+        for c in pending[:20]:
             lines.append(f"- **[{c.start}~{c.end}]** ({c.reason})")
             lines.append(f"  - \"{c.original}\"")
         lines.append("")
