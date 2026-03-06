@@ -27,8 +27,14 @@ class ActionsResult:
     date: str
 
     def save(self, out_dir: Path, file_id: str) -> Path:
+        """레거시 호환 저장."""
         out_dir.mkdir(parents=True, exist_ok=True)
         path = out_dir / f"{file_id}_actions.json"
+        return self.save_to(path)
+
+    def save_to(self, path: Path) -> Path:
+        """지정된 경로에 액션 아이템을 저장한다."""
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "course": self.course,
             "date": self.date,

@@ -8,6 +8,14 @@ import yaml
 
 
 @dataclass
+class RunPodConfig:
+    """RunPod 서버리스 전사 설정."""
+    api_key: str = ""
+    endpoint_id: str = ""
+    timeout: int = 600
+
+
+@dataclass
 class TranscribeConfig:
     model: str = "large-v3"
     language: str = "ko"
@@ -15,6 +23,8 @@ class TranscribeConfig:
     compute_type: str = "float16"
     beam_size: int = 5
     vad_filter: bool = True
+    backend: str = "local"  # "local" | "runpod"
+    runpod: RunPodConfig = field(default_factory=RunPodConfig)
 
 
 @dataclass
@@ -133,7 +143,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     )
 
     if tc := raw.get("transcribe"):
+        runpod_raw = tc.pop("runpod", None)
         cfg.transcribe = _build_dataclass(TranscribeConfig, tc)
+        if runpod_raw and isinstance(runpod_raw, dict):
+            cfg.transcribe.runpod = _build_dataclass(RunPodConfig, runpod_raw)
     if rc := raw.get("review"):
         cfg.review = _build_dataclass(ReviewConfig, rc)
     if sc := raw.get("segment"):

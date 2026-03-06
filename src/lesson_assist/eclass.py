@@ -33,6 +33,13 @@ class EclassData:
 
     def _find_semester_json(self) -> Path | None:
         data_dir = Path(self.cfg.data_dir)
+        # school_sync: raw/eclass/*_semester.json
+        eclass_dir = data_dir / "raw" / "eclass"
+        if eclass_dir.exists():
+            candidates = sorted(eclass_dir.glob("*_semester.json"), reverse=True)
+            if candidates:
+                return candidates[0]
+        # 레거시 fallback: data_dir/*_semester.json
         candidates = sorted(data_dir.glob("*_semester.json"), reverse=True)
         return candidates[0] if candidates else None
 
@@ -56,7 +63,10 @@ class EclassData:
 
         mapped = self.cfg.course_mapping.get(course_name, course_name)
 
-        courses_dir = Path(self.cfg.data_dir) / "courses"
+        # school_sync: raw/eclass/courses/*.json, 레거시: courses/*.json
+        courses_dir = Path(self.cfg.data_dir) / "raw" / "eclass" / "courses"
+        if not courses_dir.exists():
+            courses_dir = Path(self.cfg.data_dir) / "courses"
         if not courses_dir.exists():
             return {}
 

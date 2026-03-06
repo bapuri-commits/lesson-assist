@@ -64,19 +64,19 @@ def generate_vtt(transcript: TranscriptResult) -> str:
 
 def save_subtitles(
     transcript: TranscriptResult,
-    out_dir: Path,
-    file_id: str,
+    session_or_dir,
+    file_id: str | None = None,
     formats: list[str] | None = None,
 ) -> list[Path]:
     """SRT/VTT 자막 파일을 저장한다.
 
-    Args:
-        formats: 저장할 포맷 목록. 기본값 ["srt", "vtt"].
+    session_or_dir: SessionDir 인스턴스 또는 Path(레거시).
     """
+    from .session import SessionDir
+
     if formats is None:
         formats = ["srt", "vtt"]
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
 
     for fmt in formats:
@@ -88,7 +88,14 @@ def save_subtitles(
             logger.warning(f"지원하지 않는 자막 포맷: {fmt}")
             continue
 
-        path = out_dir / f"{file_id}.{fmt}"
+        if isinstance(session_or_dir, SessionDir):
+            path = session_or_dir.subtitle(fmt)
+        else:
+            out_dir = Path(session_or_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / f"{file_id}.{fmt}"
+
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         paths.append(path)
         logger.info(f"자막 저장: {path}")

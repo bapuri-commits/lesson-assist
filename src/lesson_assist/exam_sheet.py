@@ -52,21 +52,35 @@ def generate_exam_sheet(
         date_range: (시작일, 종료일) 범위. None이면 전체.
         output_dir: 출력 디렉토리. None이면 summaries_dir.
     """
-    summary_files = sorted(summaries_dir.glob(f"*_{course}_summary.json"))
+    # 새 구조: data/{course}/{date}/summary_v*.json
+    summary_files = sorted(summaries_dir.glob("*/summary_v*.json"))
+
+    # 레거시 fallback: data/summaries/*_{course}_summary.json
+    if not summary_files:
+        legacy_dir = summaries_dir.parent / "summaries"
+        summary_files = sorted(legacy_dir.glob(f"*_{course}_summary.json"))
+
     if not summary_files:
         raise FileNotFoundError(f"{course} 요약 파일 없음: {summaries_dir}")
+
+    # 날짜별로 가장 높은 버전만 사용
+    best_per_date: dict[str, Path] = {}
+    for sf in summary_files:
+        data = json.loads(sf.read_text(encoding="utf-8"))
+        lecture_date = data.get("date", "")
+        if lecture_date:
+            if lecture_date not in best_per_date or sf.name > best_per_date[lecture_date].name:
+                best_per_date[lecture_date] = sf
 
     combined_parts: list[str] = []
     dates_included: list[str] = []
 
-    for sf in summary_files:
-        data = json.loads(sf.read_text(encoding="utf-8"))
-        lecture_date = data.get("date", "")
-
+    for lecture_date in sorted(best_per_date):
         if date_range:
             if lecture_date < date_range[0] or lecture_date > date_range[1]:
                 continue
 
+        data = json.loads(best_per_date[lecture_date].read_text(encoding="utf-8"))
         dates_included.append(lecture_date)
         combined_parts.append(
             f"### {lecture_date} 강의\n{data.get('integrated_summary', '')}"

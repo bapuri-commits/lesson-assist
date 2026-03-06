@@ -35,9 +35,18 @@ class SummaryResult:
     date: str
 
     def save(self, out_dir: Path, file_id: str) -> Path:
+        """레거시 호환 저장."""
         out_dir.mkdir(parents=True, exist_ok=True)
         path = out_dir / f"{file_id}_summary.json"
+        self.save_to(path)
+        return path
+
+    def save_to(self, path: Path, version: int = 1, based_on: str = "") -> Path:
+        """지정된 경로에 요약 결과를 저장한다."""
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
+            "version": version,
+            "based_on": based_on,
             "course": self.course,
             "date": self.date,
             "integrated_summary": self.integrated_summary,
@@ -47,7 +56,7 @@ class SummaryResult:
             ],
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.info(f"요약 결과 저장: {path}")
+        logger.info(f"요약 결과 저장: {path} (v{version})")
         return path
 
 

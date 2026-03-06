@@ -11,6 +11,7 @@ from lesson_assist.config import (
     AppConfig,
     EclassConfig,
     RAGConfig,
+    RunPodConfig,
     load_config,
 )
 
@@ -72,3 +73,33 @@ class TestLoadConfig:
             assert cfg.transcribe.model == "small"
         finally:
             shutil.rmtree(td, ignore_errors=True)
+
+    def test_transcribe_backend_and_runpod(self):
+        td = _make_temp_dir()
+        try:
+            config_data = {
+                "transcribe": {
+                    "backend": "runpod",
+                    "model": "large-v3",
+                    "runpod": {
+                        "api_key": "rp_test",
+                        "endpoint_id": "ep_123",
+                        "timeout": 300,
+                    },
+                },
+            }
+            config_file = td / "config.yaml"
+            config_file.write_text(yaml.dump(config_data), encoding="utf-8")
+
+            cfg = load_config(str(config_file))
+            assert cfg.transcribe.backend == "runpod"
+            assert cfg.transcribe.runpod.api_key == "rp_test"
+            assert cfg.transcribe.runpod.endpoint_id == "ep_123"
+            assert cfg.transcribe.runpod.timeout == 300
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_transcribe_defaults_local(self):
+        cfg = load_config("/nonexistent/config.yaml")
+        assert cfg.transcribe.backend == "local"
+        assert cfg.transcribe.runpod.api_key == ""

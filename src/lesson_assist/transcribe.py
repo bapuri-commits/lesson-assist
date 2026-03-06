@@ -73,13 +73,16 @@ class TranscriptResult:
         return " ".join(seg.text.strip() for seg in self.segments if seg.text.strip())
 
     def save(self, out_dir: Path, file_id: str) -> tuple[Path, Path]:
-        """raw text와 segments json을 저장하고 경로 튜플을 반환한다."""
+        """raw text와 segments json을 저장하고 경로 튜플을 반환한다. (레거시 호환)"""
         out_dir.mkdir(parents=True, exist_ok=True)
-
         raw_path = out_dir / f"{file_id}_raw.txt"
-        raw_path.write_text(self.full_text, encoding="utf-8")
-
         seg_path = out_dir / f"{file_id}_segments.json"
+        self.save_to(seg_path, raw_path)
+        return raw_path, seg_path
+
+    def save_to(self, seg_path: Path, raw_path: Path | None = None) -> None:
+        """지정된 경로에 segments json(+ 선택적 raw text)을 저장한다."""
+        seg_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "audio_duration": self.audio_duration,
             "model": self.model,
@@ -88,8 +91,11 @@ class TranscriptResult:
         }
         seg_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        logger.info(f"전사 결과 저장: {raw_path}, {seg_path}")
-        return raw_path, seg_path
+        if raw_path is not None:
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_path.write_text(self.full_text, encoding="utf-8")
+
+        logger.info(f"전사 결과 저장: {seg_path}")
 
     @classmethod
     def load(cls, seg_path: Path) -> TranscriptResult:
@@ -105,13 +111,14 @@ class TranscriptResult:
 
 
 def transcribe(audio_path: Path, cfg: TranscribeConfig, out_dir: Path | None = None, file_id: str | None = None) -> TranscriptResult:
-    """faster-whisper로 오디오를 전사한다.
+    """오디오를 전사한다.
 
-    CUDA 사용 시 서브프로세스에서 전사를 수행한다.
-    ctranslate2의 CUDA cleanup이 Windows에서 프로세스 크래시를 일으키므로,
-    서브프로세스가 결과를 파일로 저장한 뒤 종료(크래시 포함)하고
-    메인 프로세스가 결과를 로드하는 방식으로 우회한다.
+    backend에 따라 로컬 GPU 또는 RunPod 서버리스를 사용한다.
+    로컬 CUDA 사용 시 서브프로세스에서 전사를 수행한다.
     """
+    if cfg.backend == "runpod":
+        return _transcribe_runpod(audio_path, cfg)
+
     if cfg.device == "cuda" and out_dir and file_id:
         return _transcribe_subprocess(audio_path, cfg, out_dir, file_id)
     return _transcribe_direct(audio_path, cfg)
@@ -203,3 +210,75 @@ def _transcribe_direct(audio_path: Path, cfg: TranscribeConfig) -> TranscriptRes
         model=cfg.model,
         language=cfg.language,
     )
+
+
+def _transcribe_runpod(audio_path: Path, cfg: TranscribeConfig) -> TranscriptResult:
+    """RunPod 서버리스 엔드포인트에서 전사를 수행한다."""
+    import base64
+    import time
+    import requests
+
+    rp = cfg.runpod
+    if not rp.api_key or not rp.endpoint_id:
+        raise ValueError("RunPod 설정이 없습니다. config.yaml에 transcribe.runpod.api_key와 endpoint_id를 설정하세요.")
+
+    logger.info(f"RunPod 전사 시작: model={cfg.model}, endpoint={rp.endpoint_id}")
+
+    audio_b64 = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+
+    url = f"https://api.runpod.ai/v2/{rp.endpoint_id}/run"
+    headers = {"Authorization": f"Bearer {rp.api_key}", "Content-Type": "application/json"}
+    payload = {
+        "input": {
+            "audio_base64": audio_b64,
+            "model": cfg.model,
+            "language": cfg.language,
+            "beam_size": cfg.beam_size,
+            "vad_filter": cfg.vad_filter,
+        }
+    }
+
+    resp = requests.post(url, json=payload, headers=headers, timeout=60)
+    resp.raise_for_status()
+    job = resp.json()
+    job_id = job["id"]
+    logger.info(f"RunPod 작업 제출: {job_id}")
+
+    status_url = f"https://api.runpod.ai/v2/{rp.endpoint_id}/status/{job_id}"
+    deadline = time.time() + rp.timeout
+    poll_interval = 5
+
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        sr = requests.get(status_url, headers=headers, timeout=30)
+        sr.raise_for_status()
+        status_data = sr.json()
+        status = status_data.get("status")
+
+        if status == "COMPLETED":
+            output = status_data["output"]
+            segments = [
+                Segment(
+                    id=s["id"], start=s["start"], end=s["end"],
+                    text=s["text"], avg_logprob=s.get("avg_logprob", 0.0),
+                    no_speech_prob=s.get("no_speech_prob", 0.0),
+                )
+                for s in output["segments"]
+            ]
+            result = TranscriptResult(
+                segments=segments,
+                audio_duration=output.get("audio_duration", segments[-1].end if segments else 0.0),
+                model=cfg.model,
+                language=cfg.language,
+            )
+            logger.info(f"RunPod 전사 완료: {len(segments)}개 세그먼트, {result.audio_duration:.0f}초")
+            return result
+
+        if status == "FAILED":
+            error = status_data.get("error", "알 수 없는 오류")
+            raise RuntimeError(f"RunPod 전사 실패: {error}")
+
+        logger.debug(f"RunPod 상태: {status} (경과 {time.time() - (deadline - rp.timeout):.0f}초)")
+        poll_interval = min(poll_interval * 1.5, 30)
+
+    raise TimeoutError(f"RunPod 전사 타임아웃 ({rp.timeout}초)")

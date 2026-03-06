@@ -133,12 +133,25 @@ def _find_nearest_segment(segs: list[Segment], target_time: float, start_idx: in
     return best_idx
 
 
-def save_parts(parts: list[Part], out_dir: Path, file_id: str) -> list[Path]:
-    """파트별 텍스트를 저장한다."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+def save_parts(parts: list[Part], session_or_dir, file_id: str | None = None) -> list[Path]:
+    """파트별 텍스트를 저장한다.
+
+    session_or_dir: SessionDir 인스턴스 또는 Path(레거시).
+    """
+    from .session import SessionDir
+
+    if isinstance(session_or_dir, SessionDir):
+        out_dir = session_or_dir.parts_dir
+    else:
+        out_dir = Path(session_or_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
     paths = []
     for part in parts:
-        path = out_dir / f"{file_id}_part_{part.index:02d}.txt"
+        if isinstance(session_or_dir, SessionDir):
+            path = session_or_dir.part_file(part.index)
+        else:
+            path = out_dir / f"{file_id}_part_{part.index:02d}.txt"
         header = f"# Part {part.index} ({part.time_range_str()})\n\n"
         path.write_text(header + part.text, encoding="utf-8")
         paths.append(path)

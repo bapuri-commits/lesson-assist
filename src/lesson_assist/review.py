@@ -71,10 +71,17 @@ def _has_repetition(text: str, threshold: int) -> bool:
     return False
 
 
-def save_review(candidates: list[ReviewCandidate], out_dir: Path, file_id: str) -> Path:
-    """교정 후보를 JSONL 파일로 저장한다."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{file_id}_review.jsonl"
+def save_review(candidates: list[ReviewCandidate], path_or_dir: Path, file_id: str | None = None) -> Path:
+    """교정 후보를 JSONL 파일로 저장한다.
+
+    path_or_dir가 .jsonl로 끝나면 직접 경로, 아니면 디렉토리+file_id 방식(레거시).
+    """
+    if path_or_dir.suffix == ".jsonl":
+        path = path_or_dir
+    else:
+        path = path_or_dir / f"{file_id}_review.jsonl"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for c in candidates:
             f.write(json.dumps(asdict(c), ensure_ascii=False) + "\n")

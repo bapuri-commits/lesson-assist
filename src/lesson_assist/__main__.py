@@ -30,7 +30,7 @@ def _setup_logging(cfg, verbose: bool):
         sys.stderr, level=level,
         format="<green>{time:HH:mm:ss}</green> | <level>{level:<7}</level> | {message}",
     )
-    log_dir = Path(cfg.output_dir) / "logs"
+    log_dir = Path(cfg.output_dir) / "_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     logger.add(
         str(log_dir / "pipeline_{time:YYYY-MM-DD}.log"),
@@ -63,6 +63,8 @@ def _add_process_args(parser: argparse.ArgumentParser):
     parser.add_argument("--no-anchors", action="store_true", help="Visual Anchors 비활성화")
     parser.add_argument("--no-subtitle", action="store_true", help="자막 생성 비활성화")
     parser.add_argument("--no-clean", action="store_true", help="오디오 전처리 비활성화")
+    parser.add_argument("--materials", nargs="+", default=None, help="수업자료 파일 경로 (여러 개 가능)")
+    parser.add_argument("--backend", default=None, choices=["local", "runpod"], help="전사 백엔드 (기본: config 설정)")
     _add_common_args(parser)
 
 
@@ -104,9 +106,19 @@ def cmd_process(args, cfg):
     logger.info(f"  전사 모델: {cfg.transcribe.model}")
     logger.info(f"  요약 모델: {cfg.summarize.model}")
     logger.info(f"  볼트: {cfg.vault_path}")
+    backend = getattr(args, "backend", None)
+    if backend:
+        cfg.transcribe.backend = backend
+
+    material_paths = None
+    if getattr(args, "materials", None):
+        material_paths = [Path(m).resolve() for m in args.materials]
+
     logger.info(f"  RAG: {'OFF' if args.no_rag else 'ON'}")
     logger.info(f"  Visual Anchors: {'OFF' if args.no_anchors else 'ON'}")
     logger.info(f"  오디오 전처리: {'OFF' if args.no_clean else 'ON'}")
+    if material_paths:
+        logger.info(f"  수업자료: {len(material_paths)}개 지정")
 
     from .pipeline import run_pipeline
 
@@ -124,6 +136,7 @@ def cmd_process(args, cfg):
         no_anchors=args.no_anchors,
         no_subtitle=args.no_subtitle,
         no_clean=args.no_clean,
+        material_paths=material_paths,
     )
     logger.info(f"노트 생성 완료: {note_path}")
 
@@ -181,6 +194,8 @@ def main():
     parser.add_argument("--no-anchors", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--no-subtitle", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--no-clean", action="store_true", default=False, help=argparse.SUPPRESS)
+    parser.add_argument("--materials", nargs="+", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--backend", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--verbose", "-v", action="store_true", default=False, help=argparse.SUPPRESS)
     parser.add_argument("--output-dir", default=None, help=argparse.SUPPRESS)
 

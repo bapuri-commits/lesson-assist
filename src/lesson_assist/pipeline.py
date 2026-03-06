@@ -26,6 +26,7 @@ from .review import (
     save_review,
 )
 from .segment import save_parts, segment_transcript
+from .session import SessionDir
 from .subtitle import save_subtitles
 from .summarize import summarize
 from .transcribe import TranscriptResult, transcribe
@@ -45,6 +46,7 @@ def run_pipeline(
     no_anchors: bool = False,
     no_subtitle: bool = False,
     no_clean: bool = False,
+    material_paths: list[Path] | None = None,
 ) -> Path:
     """전체 파이프라인을 실행하고 생성된 노트 경로를 반환한다."""
     if not audio_path.exists():
@@ -59,13 +61,10 @@ def run_pipeline(
     if date is None:
         date = date_type.today().isoformat()
 
-    file_id = f"{date}_{course}"
-    out_base = Path(cfg.output_dir)
-    transcript_dir = out_base / "transcripts"
-    review_dir = out_base / "reviews"
-    parts_dir = out_base / "parts"
-    summary_dir = out_base / "summaries"
-    subtitle_dir = out_base / "subtitles"
+    session = SessionDir(cfg.output_dir, course, date)
+
+    if material_paths:
+        session.save_materials(material_paths)
 
     # 0. 전처리 (영상 → 오디오)
     original_path = audio_path
@@ -74,7 +73,7 @@ def run_pipeline(
         logger.info("=" * 50)
         logger.info("STEP 0: 영상 → 오디오 추출")
         logger.info("=" * 50)
-        audio_path, _ = prepare_input(audio_path, out_base / "extracted_audio")
+        audio_path, _ = prepare_input(audio_path, session.root / "extracted_audio")
 
     # 0.5. 오디오 전처리 (잡음 제거 + 무음 제거 + 정규화)
     if cfg.clean_audio.enabled and not no_clean:
@@ -82,7 +81,7 @@ def run_pipeline(
         logger.info("STEP 0.5: 오디오 전처리")
         logger.info("=" * 50)
         audio_path, _ = clean_audio(
-            audio_path, cfg.clean_audio, out_base / "cleaned_audio",
+            audio_path, cfg.clean_audio, session.root / "cleaned_audio",
         )
 
     # 1. 전사
@@ -90,39 +89,47 @@ def run_pipeline(
     logger.info("STEP 1: 전사")
     logger.info("=" * 50)
 
-    seg_path = transcript_dir / f"{file_id}_segments.json"
-    if review_mode and seg_path.exists():
+    if review_mode and session.transcript_segments.exists():
         logger.info("기존 전사 결과 로드 (--review 모드)")
-        transcript = TranscriptResult.load(seg_path)
+        transcript = TranscriptResult.load(session.transcript_segments)
     else:
-        transcript = transcribe(audio_path, cfg.transcribe, out_dir=transcript_dir, file_id=file_id)
-        if not seg_path.exists():
-            transcript.save(transcript_dir, file_id)
+        transcript = transcribe(
+            audio_path, cfg.transcribe,
+            out_dir=session.root, file_id="transcript",
+        )
+        if not session.transcript_segments.exists():
+            transcript.save_to(session.transcript_segments, session.transcript_raw)
 
     # 2. 품질 검토
     logger.info("=" * 50)
     logger.info("STEP 2: 품질 검토")
     logger.info("=" * 50)
 
-    review_path = review_dir / f"{file_id}_review.jsonl"
     candidates: list[ReviewCandidate] = []
+    summary_based_on = session.transcript_segments.name
 
-    if review_mode and review_path.exists():
-        candidates = load_review(review_path)
+    if review_mode and session.review_file.exists():
+        candidates = load_review(session.review_file)
         corrected_count = sum(1 for c in candidates if c.action == "accepted")
         logger.info(f"교정 파일 로드: {len(candidates)}개 후보, {corrected_count}개 교정됨")
         transcript = apply_corrections(transcript, candidates)
+        rev_num, rev_path = session.next_transcript_revision()
+        transcript.save_to(rev_path)
+        summary_based_on = rev_path.name
     elif not skip_review:
         candidates = extract_candidates(transcript, cfg.review)
         if candidates:
-            save_review(candidates, review_dir, file_id)
+            save_review(candidates, session.review_file)
             print_candidates(candidates)
 
             if interactive:
-                _interactive_review(candidates, review_path)
+                _interactive_review(candidates, session.review_file, transcript)
                 transcript = apply_corrections(transcript, candidates)
+                rev_num, rev_path = session.next_transcript_revision()
+                transcript.save_to(rev_path)
+                summary_based_on = rev_path.name
             else:
-                logger.info(f"교정 파일: {review_path}")
+                logger.info(f"교정 파일: {session.review_file}")
                 logger.info("교정하려면 파일을 편집한 뒤 --review 플래그로 재실행하세요.")
     else:
         logger.info("품질 검토 건너뜀 (--skip-review)")
@@ -132,7 +139,7 @@ def run_pipeline(
         logger.info("=" * 50)
         logger.info("STEP 2.5: 자막 생성 (SRT/VTT)")
         logger.info("=" * 50)
-        save_subtitles(transcript, subtitle_dir, file_id)
+        save_subtitles(transcript, session)
 
     # 3. 분할
     logger.info("=" * 50)
@@ -140,7 +147,7 @@ def run_pipeline(
     logger.info("=" * 50)
 
     parts = segment_transcript(transcript, cfg.segment)
-    save_parts(parts, parts_dir, file_id)
+    save_parts(parts, session)
 
     # 3.5 RAG 준비 + eclass 자료 저장 + 주차 매칭
     rag_store = None
@@ -150,27 +157,29 @@ def run_pipeline(
         logger.info("=" * 50)
         logger.info("STEP 3.5: RAG 준비")
         logger.info("=" * 50)
-        rag_store = _get_rag_store(cfg)
+        rag_store = _get_rag_store(cfg, session)
 
         if rag_store is not None:
-            _load_eclass_materials_to_rag(cfg, course, rag_store)
+            _load_materials_to_rag(cfg, course, rag_store, session)
 
     eclass = EclassData(cfg.eclass)
     if eclass.available:
         logger.info("eclass 주차 주제 매칭 중…")
         week_topic = eclass.get_week_topic(course, date)
 
-    # 4. 요약 (각 파트마다 개별 RAG 검색·주입)
+    # 4. 요약
     logger.info("=" * 50)
     logger.info("STEP 4: 요약")
     logger.info("=" * 50)
+
+    ver, summary_path = session.next_summary_version()
 
     summary_result = summarize(
         parts, course, date, cfg.summarize, cfg.openai_api_key,
         rag_store=rag_store,
         week_topic=week_topic,
     )
-    summary_result.save(summary_dir, file_id)
+    summary_result.save_to(summary_path, version=ver, based_on=summary_based_on)
 
     # 4.5 RAG 저장
     if cfg.rag.enabled and not no_rag and rag_store is not None:
@@ -185,7 +194,7 @@ def run_pipeline(
     logger.info("=" * 50)
 
     actions_result = extract_actions(transcript, course, date, cfg.summarize, cfg.openai_api_key)
-    actions_result.save(summary_dir, file_id)
+    actions_result.save_to(session.actions(ver))
 
     # 5.5 Visual Anchors
     anchors_result: AnchorsResult | None = None
@@ -197,7 +206,7 @@ def run_pipeline(
 
         if input_is_video and anchors_result.candidates:
             _extract_video_screenshots(
-                original_path, anchors_result, out_base / "screenshots", file_id,
+                original_path, anchors_result, session.root / "screenshots",
             )
 
     # 6. 노트 생성
@@ -238,11 +247,13 @@ def run_pipeline(
     return note_path
 
 
-def _get_rag_store(cfg: AppConfig):
-    """RAG store 인스턴스를 생성한다. chromadb 미설치 시 None."""
+def _get_rag_store(cfg: AppConfig, session: SessionDir):
+    """RAG store 인스턴스를 생성한다."""
     try:
         from .rag import LectureStore
-        return LectureStore(cfg.rag, cfg.openai_api_key)
+        rag_cfg = cfg.rag
+        rag_cfg.db_path = str(session.rag_dir)
+        return LectureStore(rag_cfg, cfg.openai_api_key)
     except ImportError:
         logger.warning("chromadb가 설치되지 않아 RAG를 건너뜁니다. pip install chromadb")
         return None
@@ -251,25 +262,28 @@ def _get_rag_store(cfg: AppConfig):
         return None
 
 
-def _load_eclass_materials_to_rag(cfg: AppConfig, course: str, store) -> None:
-    """eclass 강의자료(PDF/PPT)를 RAG에 저장한다."""
-    eclass = EclassData(cfg.eclass)
-    if not eclass.available:
-        return
-
+def _load_materials_to_rag(cfg: AppConfig, course: str, store, session: SessionDir) -> None:
+    """수업자료를 RAG에 저장한다. 우선순위: 세션 materials.yaml > eclass 자동 탐색."""
     try:
         from .material_loader import extract_and_store_materials
-        materials = eclass.get_downloaded_materials(course)
+
+        materials = session.load_materials()
+
+        if not materials:
+            eclass = EclassData(cfg.eclass)
+            if eclass.available:
+                materials = eclass.get_downloaded_materials(course)
+
         if materials:
             extract_and_store_materials(store, course, materials)
     except ImportError:
-        logger.debug("material_loader 또는 의존성 없음 — eclass 자료 RAG 저장 스킵")
+        logger.debug("material_loader 또는 의존성 없음 — 수업자료 RAG 저장 스킵")
     except Exception as e:
-        logger.warning(f"eclass 자료 RAG 저장 실패 (계속 진행): {e}")
+        logger.warning(f"수업자료 RAG 저장 실패 (계속 진행): {e}")
 
 
 def _save_to_rag_with_store(store, course: str, date: str, summary_result) -> None:
-    """요약 결과를 RAG에 저장한다. 기존 store 인스턴스를 재사용."""
+    """요약 결과를 RAG에 저장한다."""
     try:
         part_texts = [ps.summary for ps in summary_result.part_summaries]
         store.add_lecture(
@@ -286,7 +300,6 @@ def _extract_video_screenshots(
     video_path: Path,
     anchors_result: AnchorsResult,
     screenshots_dir: Path,
-    file_id: str,
 ) -> None:
     """온라인 수업 영상에서 Visual Anchor 시점의 스크린샷을 추출한다."""
     try:
@@ -294,7 +307,7 @@ def _extract_video_screenshots(
         from .anchors import attach_image
 
         timestamps = [c.timestamp for c in anchors_result.candidates]
-        paths = extract_screenshots(video_path, timestamps, screenshots_dir, file_id)
+        paths = extract_screenshots(video_path, timestamps, screenshots_dir, "anchor")
 
         for path in paths:
             stem = path.stem
@@ -309,17 +322,51 @@ def _extract_video_screenshots(
         logger.warning(f"스크린샷 추출 실패 (계속 진행): {e}")
 
 
-def _interactive_review(candidates: list[ReviewCandidate], review_path: Path) -> None:
-    """터미널에서 대화형으로 교정을 수행한다."""
-    print("\n대화형 교정 모드 (Enter로 건너뛰기, 'q'로 종료)")
-    print("-" * 40)
+def _interactive_review(
+    candidates: list[ReviewCandidate],
+    review_path: Path,
+    transcript: TranscriptResult,
+) -> None:
+    """터미널에서 대화형으로 교정을 수행한다. 앞뒤 문맥을 함께 표시."""
+    seg_map = {seg.id: (i, seg) for i, seg in enumerate(transcript.segments)}
+    total = len(candidates)
 
-    for c in candidates:
-        print(f"\n[{c.start}~{c.end}] ({c.reason})")
-        print(f"  원문: \"{c.original}\"")
-        corrected = input("  교정 (Enter=건너뛰기, q=종료): ").strip()
+    print(f"\n대화형 교정 모드 ({total}개 후보)")
+    print("  Enter=스킵, q=종료, a=나머지 전부 스킵")
+    print("-" * 50)
+
+    for ci, c in enumerate(candidates):
+        print(f"\n[{ci + 1}/{total}] {c.start}~{c.end}  ({c.reason})")
+
+        if c.idx in seg_map:
+            pos, _ = seg_map[c.idx]
+            segs = transcript.segments
+
+            ctx_before = segs[max(0, pos - 3):pos]
+            ctx_after = segs[pos + 1:min(len(segs), pos + 4)]
+
+            if ctx_before:
+                print("  -- 앞 문맥 --")
+                for s in ctx_before:
+                    print(f"    [{s.start_str}] \"{s.text.strip()}\"")
+
+            print("  -- 현재 (저신뢰) --")
+            print(f"    [{c.start}] \"{c.original}\"")
+
+            if ctx_after:
+                print("  -- 뒤 문맥 --")
+                for s in ctx_after:
+                    print(f"    [{s.start_str}] \"{s.text.strip()}\"")
+        else:
+            print(f"  원문: \"{c.original}\"")
+
+        corrected = input("  교정: ").strip()
 
         if corrected.lower() == "q":
+            break
+        elif corrected.lower() == "a":
+            for remaining in candidates[ci:]:
+                remaining.action = "skipped"
             break
         elif corrected:
             c.corrected = corrected
@@ -328,7 +375,7 @@ def _interactive_review(candidates: list[ReviewCandidate], review_path: Path) ->
         else:
             c.action = "skipped"
 
-    save_review(candidates, review_path.parent, review_path.stem.replace("_review", ""))
+    save_review(candidates, review_path)
     print(f"\n교정 결과 저장: {review_path}")
 
 
@@ -342,7 +389,7 @@ def run_exam_sheet(
 ) -> Path:
     """시험 대비 A4 서브커맨드."""
     from .exam_sheet import generate_exam_sheet
-    summaries_dir = Path(cfg.output_dir) / "summaries"
+    summaries_dir = Path(cfg.output_dir) / course
     return generate_exam_sheet(
         course=course,
         summaries_dir=summaries_dir,
