@@ -1,7 +1,6 @@
 """lesson-assist v2 설정."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,8 +65,7 @@ class AppConfig:
 
 
 def _build_dataclass(cls, raw: dict):
-    valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
-    return cls(**{k: v for k, v in raw.items() if k in valid_fields})
+    return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -92,10 +90,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
     if dg := raw.get("daglo"):
         cfg.daglo = _build_dataclass(DagloConfig, dg)
     if nlm := raw.get("notebooklm"):
-        guide_extras = nlm.pop("guide_extras", {})
         cfg.notebooklm = _build_dataclass(NotebookLMConfig, nlm)
-        if guide_extras:
-            cfg.notebooklm.guide_extras = guide_extras
     if fnlm := raw.get("from_notebooklm"):
         cfg.from_notebooklm = _build_dataclass(FromNotebookLMConfig, fnlm)
     if obs := raw.get("obsidian"):

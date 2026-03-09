@@ -104,9 +104,13 @@ def cmd_legacy(args):
         print("        python -m lesson_assist legacy exam --course ...")
         return
 
-    sys.argv = ["lesson-assist"] + legacy_argv
-    from .legacy.__main__ import main as legacy_main
-    legacy_main()
+    original_argv = sys.argv
+    try:
+        sys.argv = ["lesson-assist"] + legacy_argv
+        from .legacy.__main__ import main as legacy_main
+        legacy_main()
+    finally:
+        sys.argv = original_argv
 
 
 def main():
