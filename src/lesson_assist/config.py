@@ -1,3 +1,4 @@
+"""lesson-assist v2 설정."""
 from __future__ import annotations
 
 import os
@@ -8,160 +9,100 @@ import yaml
 
 
 @dataclass
-class RunPodConfig:
-    """RunPod 서버리스 전사 설정."""
-    api_key: str = ""
-    endpoint_id: str = ""
-    timeout: int = 600
+class SchoolSyncConfig:
+    root: str = ""
+    output_dir: str = "output"
+    downloads_dir: str = "output/downloads"
+
+    @property
+    def normalized_dir(self) -> Path:
+        return Path(self.root) / self.output_dir / "normalized"
+
+    @property
+    def downloads_path(self) -> Path:
+        return Path(self.root) / self.downloads_dir
 
 
 @dataclass
-class TranscribeConfig:
-    model: str = "large-v3"
-    language: str = "ko"
-    device: str = "cuda"
-    compute_type: str = "float16"
-    beam_size: int = 5
-    vad_filter: bool = True
-    backend: str = "local"  # "local" | "runpod"
-    runpod: RunPodConfig = field(default_factory=RunPodConfig)
+class DagloConfig:
+    input_dir: str = "input/daglo"
 
 
 @dataclass
-class ReviewConfig:
-    logprob_threshold: float = -0.7
-    no_speech_threshold: float = 0.5
-    min_segment_chars: int = 2
-    max_repeat_count: int = 3
+class NotebookLMConfig:
+    output_dir: str = "output/notebooklm"
+    auto_open: bool = True
+    guide_extras: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
-class SegmentConfig:
-    part_minutes: int = 25
-    min_part_minutes: int = 5
+class FromNotebookLMConfig:
+    input_dir: str = "input/from_notebooklm"
 
 
 @dataclass
-class SummarizeConfig:
-    model: str = "gpt-4o"
-    temperature: float = 0.3
-    max_retries: int = 3
+class ObsidianConfig:
+    vault_path: str = ""
+    lecture_dir: str = "3_Areas/Lectures"
+    daily_dir: str = "1_Daily"
 
 
 @dataclass
-class AnchorsConfig:
-    """Visual Anchors 탐지 설정."""
-    keywords: list[str] = field(default_factory=lambda: [
-        "칠판", "판서", "보면", "그림", "수식", "도표",
-        "이렇게", "슬라이드", "다이어그램",
-        "그래프", "화면", "PPT", "피피티", "프레젠테이션",
-        "여기 보면", "이거 보면", "저기 보면", "화면에",
-    ])
-    context_seconds: float = 30.0
-    merge_gap_seconds: float = 15.0
-
-
-@dataclass
-class RAGConfig:
-    """강의 컨텍스트 RAG 설정."""
-    enabled: bool = True
-    db_path: str = "data/chroma_db"
-    embedding_model: str = "text-embedding-3-small"
-    top_k: int = 5
-    chunk_size: int = 500
-    chunk_overlap: int = 50
-
-
-@dataclass
-class CleanAudioConfig:
-    """오디오 전처리 설정."""
-    enabled: bool = True
-    highpass_freq: int = 80
-    lowpass_freq: int = 7500
-    denoise: bool = True
-    denoise_strength: int = 25
-    remove_silence: bool = True
-    silence_threshold_db: float = -40.0
-    min_silence_duration: float = 2.0
-    normalize: bool = True
-
-
-@dataclass
-class EclassConfig:
-    """eclass_crawler 연동 설정."""
-    enabled: bool = False
-    data_dir: str = ""
-    course_mapping: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class ExamSheetConfig:
-    """시험 대비 A4 생성 설정."""
-    model: str = "gpt-4o"
-    temperature: float = 0.2
-    max_retries: int = 3
+class CourseConfig:
+    guide_extra: str = ""
 
 
 @dataclass
 class AppConfig:
-    vault_path: str = ""
-    output_dir: str = "data"
-    openai_api_key: str = ""
-    transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
-    review: ReviewConfig = field(default_factory=ReviewConfig)
-    segment: SegmentConfig = field(default_factory=SegmentConfig)
-    summarize: SummarizeConfig = field(default_factory=SummarizeConfig)
-    anchors: AnchorsConfig = field(default_factory=AnchorsConfig)
-    rag: RAGConfig = field(default_factory=RAGConfig)
-    clean_audio: CleanAudioConfig = field(default_factory=CleanAudioConfig)
-    eclass: EclassConfig = field(default_factory=EclassConfig)
-    exam_sheet: ExamSheetConfig = field(default_factory=ExamSheetConfig)
+    school_sync: SchoolSyncConfig = field(default_factory=SchoolSyncConfig)
+    daglo: DagloConfig = field(default_factory=DagloConfig)
+    notebooklm: NotebookLMConfig = field(default_factory=NotebookLMConfig)
+    from_notebooklm: FromNotebookLMConfig = field(default_factory=FromNotebookLMConfig)
+    obsidian: ObsidianConfig = field(default_factory=ObsidianConfig)
+    courses: dict[str, CourseConfig] = field(default_factory=dict)
+
+    def get_course_config(self, course: str) -> CourseConfig:
+        return self.courses.get(course, CourseConfig())
 
 
 def _build_dataclass(cls, raw: dict):
-    """dataclass에 정의된 필드만 골라서 인스턴스를 생성한다."""
-    return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
+    valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+    return cls(**{k: v for k, v in raw.items() if k in valid_fields})
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
-    """config.yaml + 환경변수를 합쳐서 AppConfig를 반환한다."""
     raw: dict = {}
     if config_path:
         p = Path(config_path)
     else:
-        candidates = [Path("config.yaml"), Path(__file__).resolve().parents[2] / "config.yaml"]
+        candidates = [
+            Path("config.yaml"),
+            Path(__file__).resolve().parents[2] / "config.yaml",
+        ]
         p = next((c for c in candidates if c.exists()), None)
 
     if p and p.exists():
         with open(p, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
 
-    cfg = AppConfig(
-        vault_path=raw.get("vault_path", ""),
-        output_dir=raw.get("output_dir", "data"),
-        openai_api_key=os.environ.get("OPENAI_API_KEY", "") or raw.get("openai_api_key", ""),
-    )
+    cfg = AppConfig()
 
-    if tc := raw.get("transcribe"):
-        runpod_raw = tc.pop("runpod", None)
-        cfg.transcribe = _build_dataclass(TranscribeConfig, tc)
-        if runpod_raw and isinstance(runpod_raw, dict):
-            cfg.transcribe.runpod = _build_dataclass(RunPodConfig, runpod_raw)
-    if rc := raw.get("review"):
-        cfg.review = _build_dataclass(ReviewConfig, rc)
-    if sc := raw.get("segment"):
-        cfg.segment = _build_dataclass(SegmentConfig, sc)
-    if sm := raw.get("summarize"):
-        cfg.summarize = _build_dataclass(SummarizeConfig, sm)
-    if ac := raw.get("anchors"):
-        cfg.anchors = _build_dataclass(AnchorsConfig, ac)
-    if rg := raw.get("rag"):
-        cfg.rag = _build_dataclass(RAGConfig, rg)
-    if ca := raw.get("clean_audio"):
-        cfg.clean_audio = _build_dataclass(CleanAudioConfig, ca)
-    if ec := raw.get("eclass"):
-        cfg.eclass = _build_dataclass(EclassConfig, ec)
-    if es := raw.get("exam_sheet"):
-        cfg.exam_sheet = _build_dataclass(ExamSheetConfig, es)
+    if ss := raw.get("school_sync"):
+        cfg.school_sync = _build_dataclass(SchoolSyncConfig, ss)
+    if dg := raw.get("daglo"):
+        cfg.daglo = _build_dataclass(DagloConfig, dg)
+    if nlm := raw.get("notebooklm"):
+        guide_extras = nlm.pop("guide_extras", {})
+        cfg.notebooklm = _build_dataclass(NotebookLMConfig, nlm)
+        if guide_extras:
+            cfg.notebooklm.guide_extras = guide_extras
+    if fnlm := raw.get("from_notebooklm"):
+        cfg.from_notebooklm = _build_dataclass(FromNotebookLMConfig, fnlm)
+    if obs := raw.get("obsidian"):
+        cfg.obsidian = _build_dataclass(ObsidianConfig, obs)
+    if courses := raw.get("courses"):
+        for name, course_raw in courses.items():
+            if isinstance(course_raw, dict):
+                cfg.courses[name] = _build_dataclass(CourseConfig, course_raw)
 
     return cfg

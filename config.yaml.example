@@ -1,55 +1,35 @@
-# lesson-assist 설정 파일
+# lesson-assist v2 설정 파일
 # 이 파일을 config.yaml로 복사해서 사용하세요.
-# openai_api_key: "sk-..."  또는 OPENAI_API_KEY 환경변수 사용
 
-vault_path: "G:\\CS_Study\\The Record"
-output_dir: "data"
+# school_sync 연동
+school_sync:
+  root: "C:\\path\\to\\school_sync"
+  output_dir: "output"
+  downloads_dir: "output/downloads"
 
-transcribe:
-  model: "large-v3"
-  language: "ko"
-  device: "cuda"
-  compute_type: "float16"
-  beam_size: 5
-  vad_filter: true
+# 다글로 입력
+daglo:
+  input_dir: "input/daglo"
 
-review:
-  logprob_threshold: -0.7
-  no_speech_threshold: 0.5
-  min_segment_chars: 2
-  max_repeat_count: 3
+# NotebookLM 패키징
+notebooklm:
+  output_dir: "output/notebooklm"
+  auto_open: true               # pack 완료 시 폴더 자동 열기
+  guide_extras: {}              # 과목별 추가 가이드 (courses에서 설정 권장)
 
-segment:
-  part_minutes: 25
-  min_part_minutes: 5
+# NotebookLM 결과 입력
+from_notebooklm:
+  input_dir: "input/from_notebooklm"
 
-summarize:
-  model: "gpt-4o"
-  temperature: 0.3
-  max_retries: 3
+# Obsidian
+obsidian:
+  vault_path: "G:\\CS_Study\\The Record"
+  lecture_dir: "3_Areas/Lectures"
+  daily_dir: "1_Daily"
 
-# Phase 2 설정
-anchors:
-  context_seconds: 30.0
-  merge_gap_seconds: 15.0
-
-rag:
-  enabled: true
-  db_path: "data/chroma_db"
-  embedding_model: "text-embedding-3-small"
-  top_k: 5
-  chunk_size: 500
-  chunk_overlap: 50
-
-exam_sheet:
-  model: "gpt-4o"
-  temperature: 0.2
-  max_retries: 3
-
-# eclass_crawler 연동 (선택)
-# eclass:
-#   enabled: true
-#   data_dir: "G:\\CS_Study\\eclass_crawler\\output"
-#   course_mapping:
-#     자료구조: "자료구조(01)"
-#     알고리즘: "알고리즘(01)"
+# 과목별 설정 (선택)
+# courses:
+#   자료구조:
+#     guide_extra: ""
+#   머신러닝:
+#     guide_extra: "수식은 LaTeX 표기로 정리해주세요."

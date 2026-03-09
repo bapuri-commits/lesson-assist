@@ -1,7 +1,2 @@
-faster-whisper
-openai
 pyyaml
 loguru
-chromadb
-pdfplumber
-python-pptx

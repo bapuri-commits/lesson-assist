@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 pytest-cache-files-*/
 config.yaml
+
+# v1 데이터
 data/transcripts/
 data/reviews/
 data/parts/
@@ -13,7 +15,19 @@ data/logs/
 data/chroma_db/
 data/subtitles/
 data/test_vault/
+data/cleaned_audio/
+data/merged_audio/
+
+# v2 입출력 (실데이터)
+input/daglo/*/
+input/from_notebooklm/*/
+output/notebooklm/*/
+
+# 미디어
 *.m4a
 *.mp3
 *.wav
 *.ogg
+*.mp4
+*.mkv
+*.webm
