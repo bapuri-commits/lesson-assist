@@ -4,6 +4,8 @@
 
 > 전사(GPU)는 로컬, 요약(API)은 VPS에서 실행하는 분리 구조.
 > DevOps 학습 로드맵 Stage 8에서 사용.
+>
+> **참조**: DevOps 로드맵 전체는 `SyOps/docs/DEVOPS_ROADMAP.md`를 참조하세요.
 
 ---
 
