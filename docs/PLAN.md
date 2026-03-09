@@ -68,7 +68,7 @@ src/lesson_assist/legacy/
 | 작업 | 설명 |
 |------|------|
 | srt_parser.py | 다글로 SRT 파싱 + 정제 (타임스탬프 유지, 세그먼트 병합) |
-| context_builder.py | school_sync 정규화 데이터 → 학습 컨텍스트 마크다운 |
+| ~~context_builder.py~~ | school_sync `context_export.py`로 이동됨 (lesson-assist는 파일 읽기만) |
 | guide_generator.py | NotebookLM 가이드 프롬프트 자동 생성 (과목/날짜별) |
 | packer.py | 위 모듈 오케스트레이션 + README 생성 |
 | 폴더 열기 | pack 완료 시 수업자료 폴더 + 패키지 폴더 자동 열기 (explorer) |

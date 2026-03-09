@@ -1,11 +1,11 @@
 # lesson-assist v2 설정 파일
 # 이 파일을 config.yaml로 복사해서 사용하세요.
 
-# school_sync 연동
+# school_sync 연동 (school_sync가 생성한 가공 데이터만 참조)
 school_sync:
   root: "C:\\path\\to\\school_sync"
-  output_dir: "output"
-  downloads_dir: "output/downloads"
+  context_dir: "output/context"       # 과목별 학습 컨텍스트 (school_sync가 생성)
+  downloads_dir: "output/downloads"   # 수업자료 PDF/PPT 원본
 
 # 다글로 입력
 daglo:

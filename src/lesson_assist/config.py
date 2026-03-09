@@ -10,12 +10,12 @@ import yaml
 @dataclass
 class SchoolSyncConfig:
     root: str = ""
-    output_dir: str = "output"
+    context_dir: str = "output/context"
     downloads_dir: str = "output/downloads"
 
     @property
-    def normalized_dir(self) -> Path:
-        return Path(self.root) / self.output_dir / "normalized"
+    def context_path(self) -> Path:
+        return Path(self.root) / self.context_dir
 
     @property
     def downloads_path(self) -> Path:

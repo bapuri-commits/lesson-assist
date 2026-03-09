@@ -8,7 +8,6 @@ from pathlib import Path
 from loguru import logger
 
 from .config import AppConfig
-from .context_builder import build_context
 from .guide_generator import generate_guide
 from .srt_parser import (
     extract_date_from_filename,
@@ -56,8 +55,8 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
         logger.error("전사본 내용이 비어 있습니다.")
         return None
 
-    # 2. 학습 컨텍스트
-    context_md = build_context(cfg.school_sync, course)
+    # 2. 학습 컨텍스트 (school_sync에서 생성한 파일 읽기)
+    context_md = _load_context(cfg, course)
 
     # 3. 가이드 프롬프트
     guide_md = generate_guide(course, date, cfg)
@@ -121,6 +120,22 @@ def pack_all(cfg: AppConfig, auto_open: bool = True) -> list[Path]:
         logger.info(f"총 {len(results)}개 과목 패키징 완료")
 
     return results
+
+
+def _load_context(cfg: AppConfig, course: str) -> str:
+    """school_sync가 생성한 과목별 학습 컨텍스트 파일을 읽는다."""
+    context_path = cfg.school_sync.context_path / f"{course}.md"
+    if not context_path.exists():
+        logger.warning(f"학습 컨텍스트 파일 없음: {context_path}")
+        logger.info("  -> school_sync에서 정규화를 실행하면 자동 생성됩니다.")
+        return ""
+    try:
+        content = context_path.read_text(encoding="utf-8")
+        logger.info(f"  학습 컨텍스트 로드: {context_path.name} ({len(content)}자)")
+        return content
+    except Exception as e:
+        logger.warning(f"학습 컨텍스트 읽기 실패: {e}")
+        return ""
 
 
 def _build_readme(date: str, materials_path: Path, has_context: bool) -> str:
