@@ -17,8 +17,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from loguru import logger
 
@@ -48,6 +56,7 @@ def _add_process_args(parser: argparse.ArgumentParser):
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--audio", nargs="+", help="녹음 파일 경로 (여러 개 가능 — 순서대로 합침)")
     input_group.add_argument("--input", help="입력 파일 경로 (오디오 또는 영상)")
+    input_group.add_argument("--transcript", help="외부 전사 파일 경로 (TXT/SRT/VTT — 다글로 등에서 내보낸 파일)")
     parser.add_argument("--course", required=True, help="과목명")
     parser.add_argument("--vault", default=None, help="Obsidian vault 경로")
     parser.add_argument("--date", default=None, help="강의 날짜 (YYYY-MM-DD, 기본: 오늘)")
@@ -86,7 +95,14 @@ def cmd_process(args, cfg):
     if args.part_minutes:
         cfg.segment.part_minutes = args.part_minutes
 
-    if args.audio:
+    audio_path = None
+    transcript_path = None
+
+    if getattr(args, "transcript", None):
+        transcript_path = Path(args.transcript).resolve()
+        logger.info("lesson-assist 시작 (외부 전사 임포트)")
+        logger.info(f"  전사 파일: {transcript_path}")
+    elif args.audio:
         if isinstance(args.audio, list) and len(args.audio) > 1:
             from .preprocess import concat_audio
             paths = [Path(f).resolve() for f in args.audio]
@@ -96,11 +112,12 @@ def cmd_process(args, cfg):
         else:
             raw = args.audio[0] if isinstance(args.audio, list) else args.audio
             audio_path = Path(raw).resolve()
+        logger.info("lesson-assist 시작")
+        logger.info(f"  입력: {audio_path}")
     else:
         audio_path = Path(args.input).resolve()
-
-    logger.info("lesson-assist 시작")
-    logger.info(f"  입력: {audio_path}")
+        logger.info("lesson-assist 시작")
+        logger.info(f"  입력: {audio_path}")
     logger.info(f"  과목: {args.course}")
     logger.info(f"  날짜: {args.date or '오늘'}")
     logger.info(f"  전사 모델: {cfg.transcribe.model}")
@@ -137,6 +154,7 @@ def cmd_process(args, cfg):
         no_subtitle=args.no_subtitle,
         no_clean=args.no_clean,
         material_paths=material_paths,
+        transcript_path=transcript_path,
     )
     logger.info(f"노트 생성 완료: {note_path}")
 
@@ -178,6 +196,7 @@ def main():
     # 하위 호환: 서브커맨드 없이 --audio 직접 사용
     parser.add_argument("--audio", nargs="+", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--input", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--transcript", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--course", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--vault", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--date", default=None, help=argparse.SUPPRESS)
@@ -216,7 +235,7 @@ def main():
             cmd_process(args, cfg)
         elif args.command == "exam":
             cmd_exam(args, cfg)
-        elif args.audio or args.input:
+        elif args.audio or args.input or args.transcript:
             if not args.course:
                 parser.error("--course는 필수입니다.")
             cmd_process(args, cfg)

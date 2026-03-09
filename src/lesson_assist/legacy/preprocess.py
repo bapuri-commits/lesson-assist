@@ -60,7 +60,7 @@ def extract_audio(video_path: Path, output_dir: Path | None = None) -> Path:
         "-y",
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise RuntimeError(f"오디오 추출 실패: {result.stderr[-500:]}")
 
@@ -101,7 +101,7 @@ def extract_screenshots(
             "-y",
             str(out_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode == 0 and out_path.exists():
             paths.append(out_path)
         else:
@@ -151,7 +151,7 @@ def concat_audio(audio_paths: list[Path], output_dir: Path) -> Path:
         "-y",
         str(out_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     list_path.unlink(missing_ok=True)
 
@@ -196,13 +196,13 @@ def _get_duration(audio_path: Path) -> float:
         "-show_format",
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         return 0.0
     try:
         info = json.loads(result.stdout)
         return float(info["format"]["duration"])
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
         return 0.0
 
 
@@ -212,7 +212,7 @@ def _check_afftdn_available() -> bool:
     if not ffmpeg:
         return False
     result = subprocess.run(
-        [ffmpeg, "-filters"], capture_output=True, text=True,
+        [ffmpeg, "-filters"], capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return "afftdn" in result.stdout
 
@@ -325,7 +325,7 @@ def clean_audio(
         "-y",
         str(out_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         logger.warning(f"전처리 실패, 원본 사용: {result.stderr[-300:]}")
         return audio_path, CleanStats(

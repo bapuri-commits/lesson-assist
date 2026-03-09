@@ -33,7 +33,7 @@ from .transcribe import TranscriptResult, transcribe
 
 
 def run_pipeline(
-    audio_path: Path,
+    audio_path: Path | None,
     course: str,
     cfg: AppConfig,
     date: str | None = None,
@@ -47,10 +47,18 @@ def run_pipeline(
     no_subtitle: bool = False,
     no_clean: bool = False,
     material_paths: list[Path] | None = None,
+    transcript_path: Path | None = None,
 ) -> Path:
-    """전체 파이프라인을 실행하고 생성된 노트 경로를 반환한다."""
-    if not audio_path.exists():
-        raise FileNotFoundError(f"입력 파일 없음: {audio_path}")
+    """전체 파이프라인을 실행하고 생성된 노트 경로를 반환한다.
+
+    transcript_path가 주어지면 전사 단계를 건너뛰고 외부 전사 결과를 사용한다.
+    이 경우 audio_path는 None이어도 된다.
+    """
+    has_audio = audio_path is not None and audio_path.exists()
+    has_transcript = transcript_path is not None and transcript_path.exists()
+
+    if not has_audio and not has_transcript:
+        raise FileNotFoundError("입력 파일이 없습니다. --audio 또는 --transcript를 지정하세요.")
 
     if not cfg.openai_api_key:
         raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다. 환경변수 또는 config.yaml을 확인하세요.")
@@ -66,33 +74,48 @@ def run_pipeline(
     if material_paths:
         session.save_materials(material_paths)
 
-    # 0. 전처리 (영상 → 오디오)
-    original_path = audio_path
-    input_is_video = is_video(audio_path)
-    if input_is_video:
-        logger.info("=" * 50)
-        logger.info("STEP 0: 영상 → 오디오 추출")
-        logger.info("=" * 50)
-        audio_path, _ = prepare_input(audio_path, session.root / "extracted_audio")
-
-    # 0.5. 오디오 전처리 (잡음 제거 + 무음 제거 + 정규화)
-    if cfg.clean_audio.enabled and not no_clean:
-        logger.info("=" * 50)
-        logger.info("STEP 0.5: 오디오 전처리")
-        logger.info("=" * 50)
-        audio_path, _ = clean_audio(
-            audio_path, cfg.clean_audio, session.root / "cleaned_audio",
-        )
-
-    # 1. 전사
-    logger.info("=" * 50)
-    logger.info("STEP 1: 전사")
-    logger.info("=" * 50)
+    original_path = audio_path or transcript_path
+    source_label = original_path.name if original_path else "unknown"
+    input_is_video = False
 
     if review_mode and session.transcript_segments.exists():
-        logger.info("기존 전사 결과 로드 (--review 모드)")
+        logger.info("=" * 50)
+        logger.info("STEP 1: 기존 전사 결과 로드 (--review)")
+        logger.info("=" * 50)
         transcript = TranscriptResult.load(session.transcript_segments)
+        logger.info(f"로드 완료: {len(transcript.segments)}개 세그먼트")
+
+    elif has_transcript:
+        logger.info("=" * 50)
+        logger.info("STEP 1: 외부 전사 임포트")
+        logger.info("=" * 50)
+
+        from .transcript_import import import_transcript
+        transcript = import_transcript(transcript_path)
+        transcript.save_to(session.transcript_segments, session.transcript_raw)
+        source_label = f"[daglo] {transcript_path.name}"
+        logger.info(f"임포트 완료: {transcript_path.name} → {len(transcript.segments)}개 세그먼트")
+
     else:
+        input_is_video = is_video(audio_path)
+        if input_is_video:
+            logger.info("=" * 50)
+            logger.info("STEP 0: 영상 → 오디오 추출")
+            logger.info("=" * 50)
+            audio_path, _ = prepare_input(audio_path, session.root / "extracted_audio")
+
+        if cfg.clean_audio.enabled and not no_clean:
+            logger.info("=" * 50)
+            logger.info("STEP 0.5: 오디오 전처리")
+            logger.info("=" * 50)
+            audio_path, _ = clean_audio(
+                audio_path, cfg.clean_audio, session.root / "cleaned_audio",
+            )
+
+        logger.info("=" * 50)
+        logger.info("STEP 1: 전사")
+        logger.info("=" * 50)
+
         transcript = transcribe(
             audio_path, cfg.transcribe,
             out_dir=session.root, file_id="transcript",
@@ -223,7 +246,7 @@ def run_pipeline(
         vault_path=cfg.vault_path,
         course=course,
         date=date,
-        audio_filename=original_path.name,
+        audio_filename=source_label,
         summarize_model=cfg.summarize.model,
         include_raw=include_raw,
     )
