@@ -12,11 +12,19 @@ data/reviews/
 data/parts/
 data/summaries/
 data/logs/
+data/_logs/
 data/chroma_db/
 data/subtitles/
 data/test_vault/
 data/cleaned_audio/
 data/merged_audio/
+
+# 과목별 세션 데이터 (런타임 생성)
+data/*/
+!data/.gitkeep
+
+# 로컬 테스트
+run_test.py
 
 # v2 입출력 (실데이터)
 input/daglo/*/
