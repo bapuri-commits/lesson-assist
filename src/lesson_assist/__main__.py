@@ -82,9 +82,14 @@ def _build_legacy_parser(subparsers):
 
 
 def cmd_pack(args, cfg):
-    logger.info("lesson-assist pack 시작")
-    # Step 2에서 구현
-    logger.warning("pack 명령은 아직 구현되지 않았습니다. (Step 2에서 구현 예정)")
+    from .packer import pack_all, pack_course
+
+    auto_open = cfg.notebooklm.auto_open and not getattr(args, "no_open", False)
+
+    if getattr(args, "all", False):
+        pack_all(cfg, auto_open=auto_open)
+    else:
+        pack_course(args.course, cfg, date=args.date, auto_open=auto_open)
 
 
 def cmd_note(args, cfg):

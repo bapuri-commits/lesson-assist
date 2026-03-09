@@ -1,0 +1,161 @@
+"""Phase 2 오케스트레이션: 다글로 + school_sync -> NotebookLM 패키지."""
+from __future__ import annotations
+
+import platform
+import subprocess
+from pathlib import Path
+
+from loguru import logger
+
+from .config import AppConfig
+from .context_builder import build_context
+from .guide_generator import generate_guide
+from .srt_parser import (
+    extract_date_from_filename,
+    find_daglo_files,
+    format_for_notebooklm,
+    parse_srt,
+    parse_txt,
+)
+
+
+def pack_course(course: str, cfg: AppConfig, date: str | None = None,
+                auto_open: bool = True) -> Path | None:
+    """한 과목의 NotebookLM 업로드 패키지를 생성한다.
+
+    Returns:
+        생성된 패키지 디렉토리 경로. 실패 시 None.
+    """
+    daglo_dir = Path(cfg.daglo.input_dir)
+    daglo_files = find_daglo_files(daglo_dir, course, date)
+
+    if not daglo_files:
+        logger.error(f"다글로 파일 없음: {daglo_dir / course}/ (date={date or '자동'})")
+        logger.info(f"  -> {daglo_dir / course}/ 폴더에 YYYY-MM-DD.srt 또는 .txt 파일을 넣어주세요.")
+        return None
+
+    ref_file = daglo_files.get("srt") or daglo_files.get("txt")
+    if not date:
+        date = extract_date_from_filename(ref_file)
+    if not date:
+        from datetime import date as dt_date
+        date = dt_date.today().isoformat()
+        logger.warning(f"파일명에서 날짜 추출 실패, 오늘 날짜 사용: {date}")
+
+    logger.info(f"패키징 시작: {course} / {date}")
+
+    # 1. 전사본 정제
+    transcript_text = ""
+    if "srt" in daglo_files:
+        segments = parse_srt(daglo_files["srt"])
+        transcript_text = format_for_notebooklm(segments)
+    elif "txt" in daglo_files:
+        transcript_text = parse_txt(daglo_files["txt"])
+
+    if not transcript_text:
+        logger.error("전사본 내용이 비어 있습니다.")
+        return None
+
+    # 2. 학습 컨텍스트
+    context_md = build_context(cfg.school_sync, course)
+
+    # 3. 가이드 프롬프트
+    guide_md = generate_guide(course, date, cfg)
+
+    # 4. 출력 디렉토리 생성
+    output_dir = Path(cfg.notebooklm.output_dir) / f"{course}_{date}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    transcript_path = output_dir / f"전사본_{date}.txt"
+    transcript_path.write_text(transcript_text, encoding="utf-8")
+    logger.info(f"  전사본: {transcript_path.name} ({len(transcript_text)}자)")
+
+    if context_md:
+        context_path = output_dir / "학습컨텍스트.md"
+        context_path.write_text(context_md, encoding="utf-8")
+        logger.info(f"  학습컨텍스트: {context_path.name}")
+    else:
+        logger.warning("  학습컨텍스트: school_sync 데이터 없음 (건너뜀)")
+
+    guide_path = output_dir / "NotebookLM_가이드.md"
+    guide_path.write_text(guide_md, encoding="utf-8")
+    logger.info(f"  가이드: {guide_path.name}")
+
+    # 5. README
+    materials_path = cfg.school_sync.downloads_path / course
+    readme = _build_readme(date, materials_path, context_md != "")
+    (output_dir / "README.txt").write_text(readme, encoding="utf-8")
+
+    logger.info(f"패키지 생성 완료: {output_dir}")
+
+    # 6. 폴더 열기
+    if auto_open:
+        _open_folder(output_dir)
+        if materials_path.exists():
+            _open_folder(materials_path)
+        else:
+            logger.warning(f"  수업자료 폴더 없음: {materials_path}")
+
+    return output_dir
+
+
+def pack_all(cfg: AppConfig, auto_open: bool = True) -> list[Path]:
+    """모든 과목의 미처리 다글로 파일을 패키징한다."""
+    daglo_dir = Path(cfg.daglo.input_dir)
+    if not daglo_dir.exists():
+        logger.error(f"다글로 입력 폴더 없음: {daglo_dir}")
+        return []
+
+    results: list[Path] = []
+    for course_dir in sorted(daglo_dir.iterdir()):
+        if not course_dir.is_dir() or course_dir.name.startswith("."):
+            continue
+        course = course_dir.name
+        result = pack_course(course, cfg, auto_open=auto_open)
+        if result:
+            results.append(result)
+
+    if not results:
+        logger.warning("패키징할 다글로 파일이 없습니다.")
+    else:
+        logger.info(f"총 {len(results)}개 과목 패키징 완료")
+
+    return results
+
+
+def _build_readme(date: str, materials_path: Path, has_context: bool) -> str:
+    files = [
+        f"1. 전사본_{date}.txt (이 폴더)",
+        "2. NotebookLM_가이드.md (이 폴더)",
+    ]
+    if has_context:
+        files.insert(1, "3. 학습컨텍스트.md (이 폴더)")
+
+    materials_note = f"   -> {materials_path}" if materials_path.exists() else "   -> (폴더 없음 - school_sync --download 실행 필요)"
+
+    return f"""=== NotebookLM 업로드 안내 ===
+
+아래 파일을 NotebookLM 노트북에 업로드하세요:
+
+{chr(10).join(files)}
+
+수업자료 PDF/PPT:
+{materials_note}
+
+가이드 파일(NotebookLM_가이드.md)을 반드시 소스에 포함하세요.
+NotebookLM이 데이터를 이해하고 활용하는 데 필요합니다.
+"""
+
+
+def _open_folder(path: Path):
+    """탐색기에서 폴더를 연다."""
+    try:
+        if platform.system() == "Windows":
+            subprocess.Popen(["explorer", str(path.resolve())])
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        logger.info(f"  폴더 열기: {path}")
+    except Exception as e:
+        logger.warning(f"  폴더 열기 실패: {e}")
