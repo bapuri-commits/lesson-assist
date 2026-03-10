@@ -25,91 +25,79 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
                 auto_open: bool = True, no_sync: bool = False) -> Path | None:
     """한 과목의 NotebookLM 업로드 패키지를 생성한다.
 
-    date가 None이면 해당 과목의 모든 날짜를 처리한다.
+    출력 구조: output/notebooklm/{과목}/
+      ├── 학습컨텍스트.md        (공유, 최신으로 갱신)
+      ├── NotebookLM_가이드.md   (공유)
+      ├── README.txt
+      ├── 전사본_2026-03-04.txt  (날짜별)
+      └── 전사본_2026-03-10.txt  (날짜별)
 
     Returns:
-        마지막으로 생성된 패키지 디렉토리 경로. 실패 시 None.
+        과목 패키지 디렉토리 경로. 실패 시 None.
     """
     daglo_dir = Path(cfg.daglo.input_dir)
 
-    if not date:
+    if date:
+        dates = [date]
+    else:
         dates = find_all_dates(daglo_dir, course)
-        if not dates:
-            logger.error(f"다글로 파일 없음: {daglo_dir / course}/")
-            logger.info(f"  -> {daglo_dir / course}/ 폴더에 YYYY-MM-DD.srt 또는 .txt 파일을 넣어주세요.")
-            return None
-        if len(dates) > 1:
-            logger.info(f"{course}: {len(dates)}개 날짜 발견 ({', '.join(dates)})")
-        last_result = None
-        for d in dates:
-            result = _pack_single(course, cfg, d, daglo_dir, auto_open=auto_open, no_sync=no_sync)
-            if result:
-                last_result = result
-        return last_result
 
-    return _pack_single(course, cfg, date, daglo_dir, auto_open=auto_open, no_sync=no_sync)
-
-
-def _pack_single(course: str, cfg: AppConfig, date: str, daglo_dir: Path,
-                 auto_open: bool = True, no_sync: bool = False) -> Path | None:
-    """단일 날짜에 대한 패키징을 수행한다."""
-    daglo_files = find_daglo_files(daglo_dir, course, date)
-
-    if not daglo_files:
-        logger.error(f"다글로 파일 없음: {daglo_dir / course}/ (date={date})")
+    if not dates:
+        logger.error(f"다글로 파일 없음: {daglo_dir / course}/")
+        logger.info(f"  -> {daglo_dir / course}/ 폴더에 YYYY-MM-DD.srt 또는 .txt 파일을 넣어주세요.")
         return None
 
-    logger.info(f"패키징 시작: {course} / {date}")
-
-    # 0. school_sync 크롤링 상태 체크
-    if not no_sync:
-        _check_school_sync(cfg, date)
-
-    # 1. 전사본 정제
-    transcript_text = ""
-    if "srt" in daglo_files:
-        segments = parse_srt(daglo_files["srt"])
-        transcript_text = format_for_notebooklm(segments)
-    elif "txt" in daglo_files:
-        transcript_text = parse_txt(daglo_files["txt"])
-
-    if not transcript_text:
-        logger.error("전사본 내용이 비어 있습니다.")
-        return None
-
-    # 2. 학습 컨텍스트 (school_sync에서 생성한 파일 읽기)
-    context_md = _load_context(cfg, course)
-
-    # 3. 가이드 프롬프트
-    guide_md = generate_guide(course, date, cfg)
-
-    # 4. 출력 디렉토리 생성
-    output_dir = Path(cfg.notebooklm.output_dir) / f"{course}_{date}"
+    # 과목 단위 출력 디렉토리
+    output_dir = Path(cfg.notebooklm.output_dir) / course
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    transcript_path = output_dir / f"전사본_{date}.txt"
-    transcript_path.write_text(transcript_text, encoding="utf-8")
-    logger.info(f"  전사본: {transcript_path.name} ({len(transcript_text)}자)")
+    if len(dates) > 1:
+        logger.info(f"{course}: {len(dates)}개 날짜 발견 ({', '.join(dates)})")
 
+    # 0. school_sync 크롤링 상태 체크 (과목당 1회)
+    if not no_sync:
+        _check_school_sync(cfg, dates[-1])
+
+    # 1. 날짜별 전사본 생성
+    for d in dates:
+        daglo_files = find_daglo_files(daglo_dir, course, d)
+        if not daglo_files:
+            logger.warning(f"  {d}: 다글로 파일 없음 (건너뜀)")
+            continue
+
+        transcript_text = ""
+        if "srt" in daglo_files:
+            segments = parse_srt(daglo_files["srt"])
+            transcript_text = format_for_notebooklm(segments)
+        elif "txt" in daglo_files:
+            transcript_text = parse_txt(daglo_files["txt"])
+
+        if not transcript_text:
+            logger.warning(f"  {d}: 전사본 비어 있음 (건너뜀)")
+            continue
+
+        transcript_path = output_dir / f"전사본_{d}.txt"
+        transcript_path.write_text(transcript_text, encoding="utf-8")
+        logger.info(f"  전사본: {transcript_path.name} ({len(transcript_text)}자)")
+
+    # 2. 공유 파일 (과목당 1회, 최신으로 갱신)
+    context_md = _load_context(cfg, course)
     if context_md:
-        context_path = output_dir / "학습컨텍스트.md"
-        context_path.write_text(context_md, encoding="utf-8")
-        logger.info(f"  학습컨텍스트: {context_path.name}")
+        (output_dir / "학습컨텍스트.md").write_text(context_md, encoding="utf-8")
+        logger.info(f"  학습컨텍스트: 학습컨텍스트.md")
     else:
         logger.warning("  학습컨텍스트: school_sync 데이터 없음 (건너뜀)")
 
-    guide_path = output_dir / "NotebookLM_가이드.md"
-    guide_path.write_text(guide_md, encoding="utf-8")
-    logger.info(f"  가이드: {guide_path.name}")
+    guide_md = generate_guide(course, dates[-1], cfg)
+    (output_dir / "NotebookLM_가이드.md").write_text(guide_md, encoding="utf-8")
+    logger.info(f"  가이드: NotebookLM_가이드.md")
 
-    # 5. README
     materials_path = cfg.school_sync.downloads_path / course
-    readme = _build_readme(date, materials_path, context_md != "")
+    readme = _build_readme(dates, materials_path, context_md != "")
     (output_dir / "README.txt").write_text(readme, encoding="utf-8")
 
     logger.info(f"패키지 생성 완료: {output_dir}")
 
-    # 6. 폴더 열기
     if auto_open:
         _open_folder(output_dir)
         if materials_path.exists():
@@ -163,19 +151,22 @@ def _load_context(cfg: AppConfig, course: str) -> str:
         return ""
 
 
-def _build_readme(date: str, materials_path: Path, has_context: bool) -> str:
-    files = [
-        f"1. 전사본_{date}.txt (이 폴더)",
-        "2. NotebookLM_가이드.md (이 폴더)",
-    ]
+def _build_readme(dates: list[str], materials_path: Path, has_context: bool) -> str:
+    transcript_list = "\n".join(f"  - 전사본_{d}.txt" for d in dates)
+
+    files = [f"1. 전사본 ({len(dates)}개):\n{transcript_list}"]
+    idx = 2
+    files.append(f"{idx}. NotebookLM_가이드.md")
+    idx += 1
     if has_context:
-        files.insert(1, "3. 학습컨텍스트.md (이 폴더)")
+        files.append(f"{idx}. 학습컨텍스트.md")
+        idx += 1
 
     materials_note = f"   -> {materials_path}" if materials_path.exists() else "   -> (폴더 없음 - school_sync --download 실행 필요)"
 
     return f"""=== NotebookLM 업로드 안내 ===
 
-아래 파일을 NotebookLM 노트북에 업로드하세요:
+이 폴더의 모든 파일을 NotebookLM 노트북에 업로드하세요:
 
 {chr(10).join(files)}
 
@@ -183,7 +174,7 @@ def _build_readme(date: str, materials_path: Path, has_context: bool) -> str:
 {materials_note}
 
 가이드 파일(NotebookLM_가이드.md)을 반드시 소스에 포함하세요.
-NotebookLM이 데이터를 이해하고 활용하는 데 필요합니다.
+새 수업 후에는 전사본만 추가하면 됩니다.
 """
 
 
