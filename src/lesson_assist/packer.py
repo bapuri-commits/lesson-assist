@@ -111,8 +111,11 @@ def pack_all(cfg: AppConfig, auto_open: bool = True) -> list[Path]:
         return []
 
     results: list[Path] = []
+    skip_dirs = {"inbox"}
     for course_dir in sorted(daglo_dir.iterdir()):
         if not course_dir.is_dir() or course_dir.name.startswith("."):
+            continue
+        if course_dir.name in skip_dirs:
             continue
         course = course_dir.name
         result = pack_course(course, cfg, auto_open=auto_open)

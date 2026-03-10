@@ -27,7 +27,7 @@ def _get_known_courses(cfg: AppConfig) -> list[str]:
         except Exception:
             pass
 
-    return sorted(courses)
+    return sorted(courses, key=len, reverse=True)
 
 
 def _detect_course(filename: str, known_courses: list[str]) -> str | None:
@@ -47,15 +47,13 @@ def _detect_date(filename: str) -> str | None:
     if m:
         return m.group(1)
 
-    m = re.search(r"(\d{4})(\d{2})(\d{2})", stem)
+    m = re.search(r"(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])", stem)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
-    m = re.search(r"(\d{2})(\d{2})(\d{2})", stem)
+    m = re.search(r"(2[0-9])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])", stem)
     if m:
-        year = int(m.group(1))
-        if 20 <= year <= 30:
-            return f"20{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        return f"20{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
     return None
 
