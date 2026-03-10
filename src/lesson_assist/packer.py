@@ -1,8 +1,10 @@
 """Phase 2 오케스트레이션: 다글로 + school_sync -> NotebookLM 패키지."""
 from __future__ import annotations
 
+import json
 import platform
 import subprocess
+import sys
 from pathlib import Path
 
 from loguru import logger
@@ -42,6 +44,9 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
         logger.warning(f"파일명에서 날짜 추출 실패, 오늘 날짜 사용: {date}")
 
     logger.info(f"패키징 시작: {course} / {date}")
+
+    # 0. school_sync 크롤링 상태 체크
+    _check_school_sync(cfg, date)
 
     # 1. 전사본 정제
     transcript_text = ""
@@ -160,6 +165,54 @@ def _build_readme(date: str, materials_path: Path, has_context: bool) -> str:
 가이드 파일(NotebookLM_가이드.md)을 반드시 소스에 포함하세요.
 NotebookLM이 데이터를 이해하고 활용하는 데 필요합니다.
 """
+
+
+def _check_school_sync(cfg: AppConfig, transcript_date: str):
+    """school_sync 실행 기록을 확인하고, 필요하면 자동 크롤링을 실행한다."""
+    ss_root = Path(cfg.school_sync.root)
+    if not ss_root.exists():
+        logger.warning(f"school_sync 경로 없음: {ss_root} (크롤링 체크 건너뜀)")
+        return
+
+    log_path = ss_root / "output" / ".last_run.json"
+    needs_sync = False
+
+    if not log_path.exists():
+        logger.warning("school_sync 실행 기록 없음 (아직 한 번도 실행 안 함)")
+        needs_sync = True
+    else:
+        try:
+            log = json.loads(log_path.read_text(encoding="utf-8"))
+            last_run = log.get("last_run", "")[:10]
+            if last_run < transcript_date:
+                logger.warning(
+                    f"school_sync 마지막 실행: {last_run} (전사본 날짜: {transcript_date})"
+                )
+                needs_sync = True
+            else:
+                logger.info(f"school_sync 실행 기록 확인: {last_run} (최신)")
+        except Exception as e:
+            logger.warning(f"실행 기록 읽기 실패: {e}")
+            needs_sync = True
+
+    if not needs_sync:
+        return
+
+    logger.info("school_sync 자동 크롤링을 실행합니다...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "main.py", "--download"],
+            cwd=str(ss_root),
+            timeout=300,
+        )
+        if result.returncode == 0:
+            logger.info("school_sync 크롤링 완료")
+        else:
+            logger.warning(f"school_sync 크롤링 실패 (exit code: {result.returncode})")
+    except subprocess.TimeoutExpired:
+        logger.error("school_sync 크롤링 타임아웃 (5분)")
+    except Exception as e:
+        logger.error(f"school_sync 실행 실패: {e}")
 
 
 def _open_folder(path: Path):
