@@ -66,6 +66,7 @@ def _build_pack_parser(subparsers):
     group.add_argument("--all", action="store_true", help="모든 과목의 미처리 SRT 패키징")
     parser.add_argument("--date", default=None, help="날짜 (YYYY-MM-DD, 기본: 최신 미처리 자동 감지)")
     parser.add_argument("--no-open", action="store_true", help="완료 시 폴더 자동 열기 비활성화")
+    parser.add_argument("--no-sync", action="store_true", help="school_sync 자동 크롤링 건너뛰기")
     _add_common_args(parser)
     return parser
 
@@ -92,6 +93,7 @@ def _build_run_parser(subparsers):
     )
     parser.add_argument("--course", default=None, help="특정 과목만 처리 (기본: inbox 결과 전체)")
     parser.add_argument("--no-open", action="store_true", help="완료 시 폴더 자동 열기 비활성화")
+    parser.add_argument("--no-sync", action="store_true", help="school_sync 자동 크롤링 건너뛰기")
     _add_common_args(parser)
     return parser
 
@@ -114,11 +116,12 @@ def cmd_pack(args, cfg):
     from .packer import pack_all, pack_course
 
     auto_open = cfg.notebooklm.auto_open and not getattr(args, "no_open", False)
+    no_sync = getattr(args, "no_sync", False)
 
     if getattr(args, "all", False):
-        pack_all(cfg, auto_open=auto_open)
+        pack_all(cfg, auto_open=auto_open, no_sync=no_sync)
     else:
-        pack_course(args.course, cfg, date=args.date, auto_open=auto_open)
+        pack_course(args.course, cfg, date=args.date, auto_open=auto_open, no_sync=no_sync)
 
 
 def cmd_note(args, cfg):
@@ -132,6 +135,7 @@ def cmd_run(args, cfg):
     from .packer import pack_all, pack_course
 
     auto_open = cfg.notebooklm.auto_open and not getattr(args, "no_open", False)
+    no_sync = getattr(args, "no_sync", False)
 
     logger.info("=" * 50)
     logger.info("  lesson-assist run")
@@ -144,13 +148,13 @@ def cmd_run(args, cfg):
     # 2. pack
     logger.info("\n[2/2] NotebookLM 패키징")
     if args.course:
-        pack_course(args.course, cfg, auto_open=auto_open)
+        pack_course(args.course, cfg, auto_open=auto_open, no_sync=no_sync)
     elif inbox_results:
         courses_to_pack = {r["course"] for r in inbox_results}
         for course in sorted(courses_to_pack):
-            pack_course(course, cfg, auto_open=auto_open)
+            pack_course(course, cfg, auto_open=auto_open, no_sync=no_sync)
     else:
-        pack_all(cfg, auto_open=auto_open)
+        pack_all(cfg, auto_open=auto_open, no_sync=no_sync)
 
     logger.info("\nrun 완료")
 

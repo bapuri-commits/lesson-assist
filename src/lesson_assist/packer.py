@@ -21,7 +21,7 @@ from .srt_parser import (
 
 
 def pack_course(course: str, cfg: AppConfig, date: str | None = None,
-                auto_open: bool = True) -> Path | None:
+                auto_open: bool = True, no_sync: bool = False) -> Path | None:
     """한 과목의 NotebookLM 업로드 패키지를 생성한다.
 
     Returns:
@@ -46,7 +46,8 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
     logger.info(f"패키징 시작: {course} / {date}")
 
     # 0. school_sync 크롤링 상태 체크
-    _check_school_sync(cfg, date)
+    if not no_sync:
+        _check_school_sync(cfg, date)
 
     # 1. 전사본 정제
     transcript_text = ""
@@ -103,7 +104,7 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
     return output_dir
 
 
-def pack_all(cfg: AppConfig, auto_open: bool = True) -> list[Path]:
+def pack_all(cfg: AppConfig, auto_open: bool = True, no_sync: bool = False) -> list[Path]:
     """모든 과목의 미처리 다글로 파일을 패키징한다."""
     daglo_dir = Path(cfg.daglo.input_dir)
     if not daglo_dir.exists():
@@ -118,7 +119,7 @@ def pack_all(cfg: AppConfig, auto_open: bool = True) -> list[Path]:
         if course_dir.name in skip_dirs:
             continue
         course = course_dir.name
-        result = pack_course(course, cfg, auto_open=auto_open)
+        result = pack_course(course, cfg, auto_open=auto_open, no_sync=no_sync)
         if result:
             results.append(result)
 
@@ -173,15 +174,15 @@ NotebookLM이 데이터를 이해하고 활용하는 데 필요합니다.
 def _check_school_sync(cfg: AppConfig, transcript_date: str):
     """school_sync 실행 기록을 확인하고, 필요하면 자동 크롤링을 실행한다."""
     ss_root = Path(cfg.school_sync.root)
-    if not ss_root.exists():
-        logger.warning(f"school_sync 경로 없음: {ss_root} (크롤링 체크 건너뜀)")
+    if not cfg.school_sync.root or not ss_root.exists():
+        logger.info("school_sync 미설정 또는 경로 없음 (크롤링 체크 건너뜀)")
         return
 
     log_path = ss_root / "output" / ".last_run.json"
     needs_sync = False
 
     if not log_path.exists():
-        logger.warning("school_sync 실행 기록 없음 (아직 한 번도 실행 안 함)")
+        logger.warning("school_sync 실행 기록 없음")
         needs_sync = True
     else:
         try:
@@ -201,7 +202,15 @@ def _check_school_sync(cfg: AppConfig, transcript_date: str):
     if not needs_sync:
         return
 
-    logger.info("school_sync 자동 크롤링을 실행합니다...")
+    try:
+        answer = input("  school_sync 크롤링을 실행할까요? (y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"
+    if answer != "y":
+        logger.info("크롤링 건너뜀")
+        return
+
+    logger.info("school_sync 크롤링을 실행합니다...")
     try:
         result = subprocess.run(
             [sys.executable, "main.py", "--download"],
