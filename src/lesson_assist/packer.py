@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -54,9 +55,9 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
     if len(dates) > 1:
         logger.info(f"{course}: {len(dates)}개 날짜 발견 ({', '.join(dates)})")
 
-    # 0. school_sync 크롤링 상태 체크 (과목당 1회)
+    # 0. school_sync 크롤링 상태 체크 + 컨텍스트 재생성 (과목당 1회)
     if not no_sync:
-        _check_school_sync(cfg, dates[-1])
+        _check_school_sync(cfg, course, dates[-1])
 
     # 1. 날짜별 전사본 생성
     for d in dates:
@@ -81,7 +82,7 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
         logger.info(f"  전사본: {transcript_path.name} ({len(transcript_text)}자)")
 
     # 2. 공유 파일 (과목당 1회, 최신으로 갱신)
-    context_md = _load_context(cfg, course)
+    context_md = _load_context(cfg, course, dates[-1])
     if context_md:
         (output_dir / "학습컨텍스트.md").write_text(context_md, encoding="utf-8")
         logger.info(f"  학습컨텍스트: 학습컨텍스트.md")
@@ -92,7 +93,7 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
     (output_dir / "NotebookLM_가이드.md").write_text(guide_md, encoding="utf-8")
     logger.info(f"  가이드: NotebookLM_가이드.md")
 
-    materials_path = cfg.school_sync.downloads_path / course
+    materials_path = cfg.school_sync.downloads_path / cfg.resolve_sync_name(course)
     readme = _build_readme(dates, materials_path, context_md != "")
     (output_dir / "README.txt").write_text(readme, encoding="utf-8")
 
@@ -135,20 +136,67 @@ def pack_all(cfg: AppConfig, auto_open: bool = True, no_sync: bool = False) -> l
     return results
 
 
-def _load_context(cfg: AppConfig, course: str) -> str:
-    """school_sync가 생성한 과목별 학습 컨텍스트 파일을 읽는다."""
-    context_path = cfg.school_sync.context_path / f"{course}.md"
+def _load_context(cfg: AppConfig, course: str, transcript_date: str = "") -> str:
+    """school_sync가 생성한 과목별 학습 컨텍스트 파일을 읽는다.
+
+    daglo 폴더명과 school_sync 과목명이 다를 수 있으므로
+    config의 sync_name 매핑을 적용한다.
+    transcript_date가 주어지면 freshness 검증도 수행한다.
+    """
+    sync_name = cfg.resolve_sync_name(course)
+    if sync_name != course:
+        logger.info(f"  과목명 매핑: {course} -> {sync_name}")
+    context_path = cfg.school_sync.context_path / f"{sync_name}.md"
     if not context_path.exists():
         logger.warning(f"학습 컨텍스트 파일 없음: {context_path}")
         logger.info("  -> school_sync에서 정규화를 실행하면 자동 생성됩니다.")
         return ""
     try:
         content = context_path.read_text(encoding="utf-8")
+        _validate_context_freshness(content, transcript_date)
         logger.info(f"  학습 컨텍스트 로드: {context_path.name} ({len(content)}자)")
         return content
     except Exception as e:
         logger.warning(f"학습 컨텍스트 읽기 실패: {e}")
         return ""
+
+
+def _validate_context_freshness(content: str, transcript_date: str):
+    """컨텍스트 파일의 YAML frontmatter에서 생성 시점과 기준 날짜를 확인한다."""
+    if not transcript_date:
+        return
+
+    fm = _parse_frontmatter(content)
+    if not fm:
+        return
+
+    target = fm.get("target_date", "")
+    generated = fm.get("generated_at", "")[:10]
+
+    if target and target != transcript_date:
+        logger.warning(
+            f"  컨텍스트 기준일 불일치: target_date={target}, 전사본={transcript_date}"
+        )
+    if generated and generated < transcript_date:
+        logger.warning(
+            f"  컨텍스트가 전사본보다 이전에 생성됨: generated={generated}, 전사본={transcript_date}"
+        )
+
+
+_FM_PATTERN = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
+
+
+def _parse_frontmatter(content: str) -> dict[str, str]:
+    """YAML frontmatter에서 key: value 쌍을 간단히 추출한다."""
+    m = _FM_PATTERN.match(content)
+    if not m:
+        return {}
+    result: dict[str, str] = {}
+    for line in m.group(1).splitlines():
+        if ":" in line:
+            key, _, val = line.partition(":")
+            result[key.strip()] = val.strip().strip('"')
+    return result
 
 
 def _build_readme(dates: list[str], materials_path: Path, has_context: bool) -> str:
@@ -178,19 +226,23 @@ def _build_readme(dates: list[str], materials_path: Path, has_context: bool) -> 
 """
 
 
-def _check_school_sync(cfg: AppConfig, transcript_date: str):
-    """school_sync 실행 기록을 확인하고, 필요하면 자동 크롤링을 실행한다."""
+def _check_school_sync(cfg: AppConfig, course: str, transcript_date: str) -> bool:
+    """school_sync 실행 기록을 확인하고, 필요하면 크롤링 + 컨텍스트 재생성.
+
+    Returns:
+        True if context is considered fresh, False otherwise.
+    """
     ss_root = Path(cfg.school_sync.root)
     if not cfg.school_sync.root or not ss_root.exists():
         logger.info("school_sync 미설정 또는 경로 없음 (크롤링 체크 건너뜀)")
-        return
+        return False
 
     log_path = ss_root / "output" / ".last_run.json"
-    needs_sync = False
+    needs_crawl = False
 
     if not log_path.exists():
         logger.warning("school_sync 실행 기록 없음")
-        needs_sync = True
+        needs_crawl = True
     else:
         try:
             log = json.loads(log_path.read_text(encoding="utf-8"))
@@ -199,39 +251,57 @@ def _check_school_sync(cfg: AppConfig, transcript_date: str):
                 logger.warning(
                     f"school_sync 마지막 실행: {last_run} (전사본 날짜: {transcript_date})"
                 )
-                needs_sync = True
+                needs_crawl = True
             else:
                 logger.info(f"school_sync 실행 기록 확인: {last_run} (최신)")
         except Exception as e:
             logger.warning(f"실행 기록 읽기 실패: {e}")
-            needs_sync = True
+            needs_crawl = True
 
-    if not needs_sync:
-        return
+    if needs_crawl:
+        try:
+            answer = input("  school_sync 크롤링을 실행할까요? (y/N): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        if answer == "y":
+            logger.info("school_sync 크롤링을 실행합니다...")
+            try:
+                result = subprocess.run(
+                    [sys.executable, "main.py", "--download"],
+                    cwd=str(ss_root),
+                    timeout=300,
+                )
+                if result.returncode != 0:
+                    logger.error(f"school_sync 크롤링 실패 (exit code: {result.returncode})")
+                    return False
+                logger.info("school_sync 크롤링 완료")
+            except subprocess.TimeoutExpired:
+                logger.error("school_sync 크롤링 타임아웃 (5분)")
+                return False
+            except Exception as e:
+                logger.error(f"school_sync 실행 실패: {e}")
+                return False
 
-    try:
-        answer = input("  school_sync 크롤링을 실행할까요? (y/N): ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        answer = "n"
-    if answer != "y":
-        logger.info("크롤링 건너뜀")
-        return
+    sync_name = cfg.resolve_sync_name(course)
+    _regenerate_context(ss_root, sync_name, transcript_date)
+    return True
 
-    logger.info("school_sync 크롤링을 실행합니다...")
+
+def _regenerate_context(ss_root: Path, course: str, target_date: str):
+    """school_sync의 context_export를 호출하여 target_date 기준 컨텍스트를 재생성."""
     try:
         result = subprocess.run(
-            [sys.executable, "main.py", "--download"],
+            [sys.executable, "context_export.py", "--course", course, "--date", target_date],
             cwd=str(ss_root),
-            timeout=300,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30,
         )
         if result.returncode == 0:
-            logger.info("school_sync 크롤링 완료")
+            logger.info(f"  컨텍스트 재생성 완료: {course} (기준일: {target_date})")
         else:
-            logger.warning(f"school_sync 크롤링 실패 (exit code: {result.returncode})")
-    except subprocess.TimeoutExpired:
-        logger.error("school_sync 크롤링 타임아웃 (5분)")
+            logger.warning(f"  컨텍스트 재생성 실패: {result.stderr[:100] if result.stderr else 'unknown error'}")
     except Exception as e:
-        logger.error(f"school_sync 실행 실패: {e}")
+        logger.warning(f"  컨텍스트 재생성 실패: {e}")
 
 
 def _open_folder(path: Path):

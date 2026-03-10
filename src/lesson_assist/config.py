@@ -49,6 +49,7 @@ class ObsidianConfig:
 @dataclass
 class CourseConfig:
     guide_extra: str = ""
+    sync_name: str = ""
 
 
 @dataclass
@@ -62,6 +63,16 @@ class AppConfig:
 
     def get_course_config(self, course: str) -> CourseConfig:
         return self.courses.get(course, CourseConfig())
+
+    def resolve_sync_name(self, course: str) -> str:
+        """daglo 폴더명을 school_sync 과목명으로 변환한다.
+
+        CourseConfig.sync_name이 설정되어 있으면 사용, 아니면 원래 이름 반환.
+        """
+        cc = self.courses.get(course)
+        if cc and cc.sync_name:
+            return cc.sync_name
+        return course
 
 
 def _build_dataclass(cls, raw: dict):

@@ -29,7 +29,11 @@ obsidian:
 
 # 과목별 설정 (선택)
 # courses:
-#   자료구조:
+#   자료구조:                          # daglo 폴더명
+#     sync_name: "자료구조"            # school_sync 과목명 (다르면 매핑)
+#     guide_extra: ""
+#   DB:                                # daglo 폴더명이 "DB"지만
+#     sync_name: "데이터베이스"        # school_sync에서는 "데이터베이스"
 #     guide_extra: ""
 #   머신러닝:
 #     guide_extra: "수식은 LaTeX 표기로 정리해주세요."
