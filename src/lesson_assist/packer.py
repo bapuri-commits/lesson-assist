@@ -13,6 +13,7 @@ from .config import AppConfig
 from .guide_generator import generate_guide
 from .srt_parser import (
     extract_date_from_filename,
+    find_all_dates,
     find_daglo_files,
     format_for_notebooklm,
     parse_srt,
@@ -24,24 +25,39 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
                 auto_open: bool = True, no_sync: bool = False) -> Path | None:
     """한 과목의 NotebookLM 업로드 패키지를 생성한다.
 
+    date가 None이면 해당 과목의 모든 날짜를 처리한다.
+
     Returns:
-        생성된 패키지 디렉토리 경로. 실패 시 None.
+        마지막으로 생성된 패키지 디렉토리 경로. 실패 시 None.
     """
     daglo_dir = Path(cfg.daglo.input_dir)
+
+    if not date:
+        dates = find_all_dates(daglo_dir, course)
+        if not dates:
+            logger.error(f"다글로 파일 없음: {daglo_dir / course}/")
+            logger.info(f"  -> {daglo_dir / course}/ 폴더에 YYYY-MM-DD.srt 또는 .txt 파일을 넣어주세요.")
+            return None
+        if len(dates) > 1:
+            logger.info(f"{course}: {len(dates)}개 날짜 발견 ({', '.join(dates)})")
+        last_result = None
+        for d in dates:
+            result = _pack_single(course, cfg, d, daglo_dir, auto_open=auto_open, no_sync=no_sync)
+            if result:
+                last_result = result
+        return last_result
+
+    return _pack_single(course, cfg, date, daglo_dir, auto_open=auto_open, no_sync=no_sync)
+
+
+def _pack_single(course: str, cfg: AppConfig, date: str, daglo_dir: Path,
+                 auto_open: bool = True, no_sync: bool = False) -> Path | None:
+    """단일 날짜에 대한 패키징을 수행한다."""
     daglo_files = find_daglo_files(daglo_dir, course, date)
 
     if not daglo_files:
-        logger.error(f"다글로 파일 없음: {daglo_dir / course}/ (date={date or '자동'})")
-        logger.info(f"  -> {daglo_dir / course}/ 폴더에 YYYY-MM-DD.srt 또는 .txt 파일을 넣어주세요.")
+        logger.error(f"다글로 파일 없음: {daglo_dir / course}/ (date={date})")
         return None
-
-    ref_file = daglo_files.get("srt") or daglo_files.get("txt")
-    if not date:
-        date = extract_date_from_filename(ref_file)
-    if not date:
-        from datetime import date as dt_date
-        date = dt_date.today().isoformat()
-        logger.warning(f"파일명에서 날짜 추출 실패, 오늘 날짜 사용: {date}")
 
     logger.info(f"패키징 시작: {course} / {date}")
 

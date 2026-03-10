@@ -135,6 +135,22 @@ def find_daglo_files(daglo_dir: Path, course: str, date: str | None = None) -> d
     return result
 
 
+def find_all_dates(daglo_dir: Path, course: str) -> list[str]:
+    """과목 폴더의 모든 날짜를 반환한다."""
+    course_dir = daglo_dir / course
+    if not course_dir.exists():
+        return []
+
+    dates: set[str] = set()
+    for f in course_dir.iterdir():
+        if f.is_file() and f.suffix.lower() in (".srt", ".txt"):
+            d = extract_date_from_filename(f)
+            if d:
+                dates.add(d)
+
+    return sorted(dates)
+
+
 def extract_date_from_filename(path: Path) -> str | None:
     """파일명에서 YYYY-MM-DD 날짜를 추출한다."""
     m = re.search(r"(\d{4}-\d{2}-\d{2})", path.stem)
