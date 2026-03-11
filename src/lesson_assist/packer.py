@@ -96,7 +96,7 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
 
     # 3. ipynb 변환 (코랩/Jupyter 노트북)
     sync_name = cfg.resolve_sync_name(course)
-    materials_path = cfg.school_sync.downloads_path / sync_name
+    materials_path = _find_materials_dir(cfg.school_sync.downloads_path, sync_name)
     ipynb_files = find_ipynb_files(cfg.school_sync.downloads_path, sync_name)
     for ipynb in ipynb_files:
         convert_and_save(ipynb, output_dir)
@@ -203,6 +203,19 @@ def _parse_frontmatter(content: str) -> dict[str, str]:
             key, _, val = line.partition(":")
             result[key.strip()] = val.strip().strip('"')
     return result
+
+
+def _find_materials_dir(downloads_path: Path, course: str) -> Path:
+    """downloads에서 과목명을 포함하는 디렉토리를 찾는다.
+
+    school_sync downloads 폴더명이 "머신러닝 - 1분반 [컴퓨터·AI학부] (1학기)" 형태이므로
+    과목명 부분 매칭으로 찾는다. 매칭 실패 시 직접 조합한 경로를 반환.
+    """
+    if downloads_path.exists():
+        for d in downloads_path.iterdir():
+            if d.is_dir() and course in d.name:
+                return d
+    return downloads_path / course
 
 
 def _build_readme(dates: list[str], materials_path: Path, has_context: bool) -> str:

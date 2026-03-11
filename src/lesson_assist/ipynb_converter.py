@@ -103,12 +103,20 @@ def find_ipynb_files(downloads_dir: Path, course: str) -> list[Path]:
 
 
 def convert_and_save(ipynb_path: Path, output_dir: Path) -> Path | None:
-    """ipynb를 변환하여 output_dir에 .md로 저장한다."""
+    """ipynb를 변환하여 output_dir에 .md로 저장한다.
+
+    이미 변환된 파일이 있고 원본보다 새로우면 스킵한다.
+    """
+    md_path = output_dir / f"{ipynb_path.stem}.md"
+
+    if md_path.exists() and md_path.stat().st_mtime >= ipynb_path.stat().st_mtime:
+        logger.info(f"  ipynb 변환 스킵 (최신): {md_path.name}")
+        return md_path
+
     md_content = convert_ipynb_to_md(ipynb_path)
     if not md_content:
         return None
 
-    md_path = output_dir / f"{ipynb_path.stem}.md"
     md_path.write_text(md_content, encoding="utf-8")
     logger.info(f"  ipynb 변환: {ipynb_path.name} -> {md_path.name} ({len(md_content)}자)")
     return md_path
