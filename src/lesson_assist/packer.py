@@ -12,6 +12,7 @@ from loguru import logger
 
 from .config import AppConfig
 from .guide_generator import generate_guide
+from .ipynb_converter import convert_and_save, find_ipynb_files
 from .srt_parser import (
     extract_date_from_filename,
     find_all_dates,
@@ -93,7 +94,12 @@ def pack_course(course: str, cfg: AppConfig, date: str | None = None,
     (output_dir / "NotebookLM_가이드.md").write_text(guide_md, encoding="utf-8")
     logger.info(f"  가이드: NotebookLM_가이드.md")
 
-    materials_path = cfg.school_sync.downloads_path / cfg.resolve_sync_name(course)
+    # 3. ipynb 변환 (코랩/Jupyter 노트북)
+    sync_name = cfg.resolve_sync_name(course)
+    materials_path = cfg.school_sync.downloads_path / sync_name
+    ipynb_files = find_ipynb_files(cfg.school_sync.downloads_path, sync_name)
+    for ipynb in ipynb_files:
+        convert_and_save(ipynb, output_dir)
     readme = _build_readme(dates, materials_path, context_md != "")
     (output_dir / "README.txt").write_text(readme, encoding="utf-8")
 
