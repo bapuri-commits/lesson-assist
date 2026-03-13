@@ -331,13 +331,15 @@ def _file_hash(path: Path) -> str:
 
 def _write_manifest(output_dir: Path):
     """pack 결과의 해시 매니페스트를 생성한다. 이전 매니페스트와 비교하여 changed 플래그를 기록."""
+    import tempfile
+
     manifest_path = output_dir / ".pack_manifest.json"
     prev: dict[str, str] = {}
     if manifest_path.exists():
         try:
             prev = {e["filename"]: e["hash"] for e in json.loads(manifest_path.read_text(encoding="utf-8"))}
         except Exception:
-            pass
+            logger.warning("이전 매니페스트 읽기 실패 — 변경 추적이 초기화됩니다")
 
     entries = []
     for f in sorted(output_dir.iterdir()):
@@ -347,7 +349,14 @@ def _write_manifest(output_dir: Path):
         changed = prev.get(f.name) != h if f.name in prev else None
         entries.append({"filename": f.name, "hash": h, "changed": changed})
 
-    manifest_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(output_dir), suffix=".tmp")
+    try:
+        with open(tmp_fd, "w", encoding="utf-8") as tmp_f:
+            json.dump(entries, tmp_f, ensure_ascii=False, indent=2)
+        Path(tmp_path).replace(manifest_path)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
 
 
 def _open_folder(path: Path):
