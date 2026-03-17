@@ -288,7 +288,7 @@ def _check_school_sync(cfg: AppConfig, course: str, transcript_date: str) -> boo
             logger.info("school_sync 크롤링을 실행합니다...")
             try:
                 result = subprocess.run(
-                    [sys.executable, "main.py", "--download"],
+                    [sys.executable, "main.py", "--site", "eclass", "--download"],
                     cwd=str(ss_root),
                     timeout=300,
                 )
