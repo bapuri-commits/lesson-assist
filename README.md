@@ -1,78 +1,76 @@
 # lesson-assist
 
-수업 녹음 파일을 넣으면 **전사 → 요약 → Obsidian 노트**가 자동 생성되는 CLI 도구.
+다글로 전사본(SRT)을 inbox에 넣으면 **과목 분류 → NotebookLM 업로드 패키지 자동 생성**되는 CLI 도구.
 
-## 요구사항
+## 빠른 시작 (로컬)
 
-- Python 3.10+
-- NVIDIA GPU + CUDA (faster-whisper 가속)
-- ffmpeg (오디오 변환)
-- OpenAI API 키
+의존성 2개만 설치하면 바로 사용 가능:
 
-## 설치
-
-```bash
-git clone https://github.com/your/lesson-assist.git
+```powershell
 cd lesson-assist
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-pip install -r requirements.txt
+pip install pyyaml loguru
+pip install -e .
 ```
 
-## 설정
+> 최초 1회만 실행하면 이후엔 바로 사용 가능.
 
-```bash
-copy config.yaml.example config.yaml
+## 매번 쓰는 명령어
+
+```powershell
+cd C:\Users\chois\CS_Study_SY\lesson-assist
+python -m lesson_assist run --no-sync
 ```
 
-`config.yaml`에서 `vault_path`를 본인의 Obsidian vault 경로로 수정.
+**순서:**
+1. 다글로에서 `.srt` 파일 다운로드
+2. `input\daglo\inbox\` 폴더에 파일 넣기
+3. 위 명령어 실행
+4. 열리는 `output\notebooklm\{과목}\` 폴더 파일들을 NotebookLM에 업로드
 
-환경변수:
-```bash
-set OPENAI_API_KEY=sk-...
-```
+## 전체 명령어
 
-## 사용법
+```powershell
+# 전체 워크플로우 (inbox 분류 → 패키징)
+python -m lesson_assist run --no-sync
 
-```bash
-# 기본 실행
-python -m lesson_assist --audio "D:\Recordings\lecture.m4a" --course "자료구조"
+# 단계별 실행
+python -m lesson_assist inbox                          # inbox 분류만
+python -m lesson_assist pack --course "자료구조"       # 특정 과목 패키징
+python -m lesson_assist pack --all                     # 모든 과목 패키징
 
-# 대화형 교정 모드
-python -m lesson_assist --audio "lecture.m4a" --course "자료구조" --interactive
-
-# 교정 건너뛰고 바로 요약
-python -m lesson_assist --audio "lecture.m4a" --course "자료구조" --skip-review
-
-# 교정 파일 수정 후 재실행
-python -m lesson_assist --audio "lecture.m4a" --course "자료구조" --review
+# school_sync 크롤링 포함 (기본값)
+python -m lesson_assist run
 ```
 
 ### 주요 옵션
 
 | 옵션 | 설명 |
 |------|------|
-| `--audio` | 녹음 파일 경로 (필수) |
-| `--course` | 과목명 (필수) |
-| `--vault` | Obsidian vault 경로 |
-| `--date` | 강의 날짜 YYYY-MM-DD (기본: 오늘) |
-| `--skip-review` | 교정 단계 건너뛰기 |
-| `--review` | 교정 파일 반영 후 재실행 |
-| `--interactive` | 대화형 교정 모드 |
-| `--no-daily` | 데일리 노트 연동 비활성화 |
+| `--no-sync` | school_sync 크롤링 건너뛰기 (빠름) |
+| `--course` | 특정 과목만 처리 |
+| `--date YYYY-MM-DD` | 특정 날짜 지정 |
+| `--no-open` | 완료 후 폴더 자동 열기 비활성화 |
 | `-v` | 상세 로그 |
+
+## 출력물 (NotebookLM 업로드 대상)
+
+| 파일 | 설명 | 재업로드 |
+|------|------|----------|
+| `전사본_YYYY-MM-DD.txt` | 강의 전사본 | 새 강의마다 추가 |
+| `학습컨텍스트.md` | 강의계획서 + 과제 + 공지 | 새 강의마다 교체 |
+| `NotebookLM_가이드.md` | NotebookLM 활용 가이드 | 처음 한 번만 |
+| `{노트북명}.md` | ipynb → 마크다운 변환 | 새 ipynb 올라올 때만 |
 
 ## 파이프라인 흐름
 
 ```
-녹음파일 → 전사(faster-whisper) → 품질검토(저신뢰 후보) → 분할(~25분)
-    → 요약(GPT-4o) → 액션추출(과제/시험/일정) → Obsidian 노트 → 데일리 연동
+inbox (.srt) → 과목/날짜 자동 감지 → 과목별 폴더 이동
+    → 전사본 변환 → school_sync 컨텍스트 로드 → ipynb 변환
+    → output/notebooklm/{과목}/ 패키지 생성
 ```
 
-## 출력물
+## v1 레거시 (faster-whisper + GPT-4o)
 
-- `3_Areas/Lectures/{과목명}/{날짜}_{과목명}.md` — 강의 노트
-- `data/transcripts/` — 전사 원문 + 세그먼트 JSON
-- `data/reviews/` — 교정 후보 JSONL
-- `data/parts/` — 파트별 텍스트
-- `data/summaries/` — 요약 + 액션 아이템 JSON
+```powershell
+python -m lesson_assist legacy process --audio "lecture.m4a" --course "자료구조"
+```
